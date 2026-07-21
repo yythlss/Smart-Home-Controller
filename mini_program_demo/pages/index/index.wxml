@@ -1,0 +1,105 @@
+<view class="panel">
+  <view class="title">空气管家</view>
+  <view class="muted">ESP32 局域网地址</view>
+  <view class="host-row">
+    <input class="host-input" value="{{host}}" bindinput="onHostInput" placeholder="例如 192.168.1.23:8080" />
+    <button class="primary" bindtap="saveHost" loading="{{loading}}">连接</button>
+  </view>
+  <view class="message">{{message}}</view>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title">环境状态</view>
+  <view class="metrics">
+    <view class="metric">
+      <view class="metric-value">{{state.has_temperature ? state.temperature_c : '--'}}</view>
+      <view class="metric-label">温度 C</view>
+    </view>
+    <view class="metric">
+      <view class="metric-value">{{state.has_humidity ? state.humidity_percent : '--'}}</view>
+      <view class="metric-label">湿度 %</view>
+    </view>
+    <view class="metric">
+      <view class="metric-value">{{state.air_score}}</view>
+      <view class="metric-label">空气评分</view>
+    </view>
+  </view>
+  <view class="info-list">
+    <view class="info-row">
+      <text class="info-label">空气等级</text>
+      <text>{{state.air_state || '--'}}</text>
+    </view>
+    <view class="info-row">
+      <text class="info-label">舒适度</text>
+      <text>{{state.comfort || '--'}}</text>
+    </view>
+    <view class="info-row">
+      <text class="info-label">环境建议</text>
+      <text>{{state.advice || '--'}}</text>
+    </view>
+    <view class="info-row">
+      <text class="info-label">数据来源</text>
+      <text>{{state.manual_environment_mode ? '手动模拟' : '真实传感器'}}</text>
+    </view>
+  </view>
+  <button class="secondary" bindtap="refreshAll" loading="{{loading}}">刷新数据</button>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title">手动输入数据</view>
+  <view class="manual-grid">
+    <view class="manual-field">
+      <view class="muted">温度 C</view>
+      <input class="manual-input" type="digit" data-field="temperature_c" value="{{manualForm.temperature_c}}" bindinput="onManualInput" />
+    </view>
+    <view class="manual-field">
+      <view class="muted">湿度 %</view>
+      <input class="manual-input" type="digit" data-field="humidity_percent" value="{{manualForm.humidity_percent}}" bindinput="onManualInput" />
+    </view>
+    <view class="manual-field">
+      <view class="muted">空气评分</view>
+      <input class="manual-input" type="number" data-field="air_score" value="{{manualForm.air_score}}" bindinput="onManualInput" />
+    </view>
+  </view>
+  <view class="action-row">
+    <button class="primary" bindtap="setManualEnvironment" loading="{{loading}}">应用手动数据</button>
+    <button class="secondary inline" bindtap="disableManualEnvironment" loading="{{loading}}">恢复传感器</button>
+  </view>
+  <view class="preset-row">
+    <button wx:for="{{presets}}" wx:key="key" class="preset" data-preset="{{item.key}}" bindtap="setEnvironmentPreset">{{item.name}}</button>
+  </view>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title">模式</view>
+  <view class="mode-row">
+    <button class="{{state.auto_mode ? 'mode active' : 'mode'}}" data-mode="auto" bindtap="setMode">自动</button>
+    <button class="{{state.eco_mode ? 'mode active' : 'mode'}}" data-mode="eco" bindtap="setMode">节能</button>
+  </view>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title">设备控制</view>
+  <block wx:for="{{devices}}" wx:key="key">
+    <view class="device-row">
+      <view class="device-name">{{item.name}}</view>
+      <view class="level-buttons">
+        <button wx:for="{{levels}}" wx:for-item="level" wx:key="*this"
+          class="{{item.level === level ? 'level active' : 'level'}}"
+          data-device="{{item.key}}" data-level="{{level}}" bindtap="setDevice">{{level}}</button>
+      </view>
+    </view>
+  </block>
+</view>
+
+<view class="panel">
+  <view class="section-title">近期空气质量</view>
+  <view wx:if="{{samples.length === 0}}" class="muted">暂无历史数据</view>
+  <view wx:for="{{samples}}" wx:key="index" class="sample-row">
+    <view class="sample-index">{{item.index}}</view>
+    <view class="bar-track">
+      <view class="bar-fill" style="width: {{item.airWidth}}%;"></view>
+    </view>
+    <view class="sample-score">{{item.air_score}}</view>
+  </view>
+</view>

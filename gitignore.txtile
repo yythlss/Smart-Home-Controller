@@ -1,0 +1,8 @@
+.claude
+/handin
+build/
+claude.md
+clean.bat
+*.zip
+*.rar
+*.7z
