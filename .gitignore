@@ -1,7 +1,7 @@
 .claude
 /handin
 build/
-claude.md
+CLAUDE.md
 clean.bat
 *.zip
 *.rar
