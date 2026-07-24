@@ -1,0 +1,1359 @@
+﻿# USART HMI 手动事件配置步骤手册
+
+本文档用于指导你在 USART HMI 编辑器中，手动完成 `D:/QQ/serial_warm_home .HMI` 的页面、数据控件、触摸热区、滑动切页事件和下载验收。固件端已经支持本文档列出的事件；你只需要在 HMI 工程里把页面、数据控件名和触摸热区发送的事件字符串配置正确。
+
+`.HMI` 是二进制工程文件，不能用文本编辑器或十六进制工具直接修改，必须通过 USART HMI 编辑器打开、保存、编译和下载。
+
+## 0. 当前分工
+
+| 部分 | 负责内容 |
+| --- | --- |
+| USART HMI 工程 | 页面布局、背景图、触摸热区、字体、滑动动效 |
+| ESP32 固件 | 发送控件值、接收触摸事件、执行 `page 0` 到 `page 3` 切换 |
+| 本文档 | 告诉你在 HMI 编辑器里每一步手动配置什么 |
+
+固件不再默认使用 `cls/fill/draw/xstr` 整页绘制 UI，所以不要再把页面结构放回 ESP32 运行时绘图逻辑里。
+
+## 0.2 当前结论：按手动流程做，不采用脚本副本
+
+后台脚本只能证明 `.HMI` 里存在可定位的图片资源，但它不能保证编辑器能接受被脚本改过的 HMI 副本，也不能自动创建控件和事件。因此当前正式操作不要使用：
+
+```text
+tmp_hmi_probe_page1_bg_replace.HMI
+```
+
+当前正式操作对象仍然是：
+
+```text
+D:/QQ/serial_warm_home .HMI
+```
+
+推荐做法：
+
+1. 用 USART HMI 编辑器打开原始 HMI 工程。
+2. 在编辑器里手动导入背景图。
+3. 手动创建文本、进度条和触摸热区。
+4. 在右侧 `事件 -> 弹起事件(0)` 里手动填写 `prints` / `printh` 命令。
+5. 保存、编译、下载到串口屏。
+6. 再用 ESP32 monitor 验证事件和控件刷新。
+
+脚本相关文件只作为探测记录保留，不作为当前交付路径。
+
+## 0.1 编辑器限制和命名规则
+
+你当前的 USART HMI 编辑器只有“触摸热区”，并且控件命名长度限制为 14 个字符。因此本文档已经按这个限制调整：
+
+| 类型 | 命名规则 | 是否必须被 ESP32 直接写入 |
+| --- | --- | --- |
+| 数据文本/进度控件 | 使用 `t_` 或 `j_` 开头，例如 `t_temp`、`t_comfort`、`j_air` | 是，名字必须和固件一致 |
+| 触摸热区 | 使用 `hs_` 开头，例如 `hs_air`、`hs_back`、`hs_next` | 否，固件识别的是热区事件字符串 |
+
+当前所有推荐名称都不超过 14 个字符。
+
+特别注意：
+
+- 触摸热区不是按钮控件，不需要创建 `bt_*` 按钮。
+- 触摸热区名字只是为了你在编辑器里管理图层和位置。
+- ESP32 不读取触摸热区名字，只读取热区事件里发出的字符串，例如 `BTN,PAGE,AIR_DETAIL`。
+- 数据控件名必须严格一致，例如 `t_temp`、`t_humi`、`t_comfort`，否则 ESP32 发出的控件赋值命令会找不到对象。
+- 原来的长名 `t_comfort_level` 已改为 `t_comfort`，适配 14 字符限制。
+
+## 1. 准备文件
+
+先确认以下文件存在：
+
+```text
+D:/QQ/serial_warm_home .HMI
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/ui_assets/
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/serial_hmi_widgets.json
+```
+
+推荐编辑器：
+
+```text
+E:/USART_HMI/USART HMI.exe
+```
+
+UI 资源目录：
+
+```text
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/ui_assets
+```
+
+资源文件用途：
+
+| 文件 | 尺寸 | 用途 | 在编辑器里的处理 |
+| --- | --- | --- | --- |
+| `page0_home_launcher_hmi_blank.png` | `480x272` | page0 首页实际导入底图 | 优先导入到 page0，铺满全屏，放到底层 |
+| `page1_air_detail_hmi_blank.png` | `480x272` | page1 空气详情实际导入底图 | 优先导入到 page1，铺满全屏，放到底层 |
+| `page2_smart_home_hmi_blank.png` | `480x272` | page2 智能家居实际导入底图 | 优先导入到 page2，铺满全屏，放到底层 |
+| `page3_ai_settings_hmi_manual_env.png` | `480x272` | page3 AI 与设置实际导入底图，底部已画出手动环境按钮 | 优先导入到 page3，铺满全屏，放到底层 |
+| `icon_air.png` | `96x96` | 空气详情图标 | 可选；page0 空白底图里已经画了图标，可不单独导入 |
+| `icon_home.png` | `96x96` | 智能家居图标 | 可选；page0 空白底图里已经画了图标，可不单独导入 |
+| `icon_ai.png` | `96x96` | AI 图标 | 可选；page0 空白底图里已经画了图标，可不单独导入 |
+| `icon_settings.png` | `96x96` | 设置图标 | 可选；page0 空白底图里已经画了图标，可不单独导入 |
+| `transition_swipe_left.png` | `480x272` | 左滑动效示意 | 可选；如果编辑器支持动画，可作为过渡帧 |
+| `transition_swipe_right.png` | `480x272` | 右滑动效示意 | 可选；如果编辑器支持动画，可作为过渡帧 |
+
+注意：旧的带固定示例数据效果图已经清理，实际导入请只使用带 `_hmi_blank` 后缀的空白底图。
+
+## 2. 打开 HMI 工程
+
+1. 打开 `E:/USART_HMI/USART HMI.exe`。
+2. 在编辑器中选择打开工程。
+3. 打开：
+
+```text
+D:/QQ/serial_warm_home .HMI
+```
+
+4. 打开后先不要改控件，先检查工程基础参数。
+
+需要确认：
+
+| 项目 | 目标值 |
+| --- | --- |
+| 屏幕方向 | 横屏 |
+| 推荐分辨率 | `480x272` |
+| 串口波特率 | `9600` |
+| 页面数量 | 至少 `page0`、`page1`、`page2`、`page3` |
+
+如果工程已有页面和控件，优先在原页面上调整，不要随意删除已有控件。
+
+## 3. 确认页面编号
+
+固件使用页面编号切换页面，因此 HMI 页面编号必须和下表一致。
+
+| HMI 页面 | 固件 page id | 页面用途 |
+| --- | --- | --- |
+| `page0` | `0` | 手机式首页 |
+| `page1` | `1` | 空气详情 |
+| `page2` | `2` | 智能家居控制 |
+| `page3` | `3` | AI 与设置 |
+
+检查方法：
+
+1. 在编辑器左侧页面列表中查看页面。
+2. 确认首页是 `page0`。
+3. 确认空气详情页是 `page1`。
+4. 确认智能家居页是 `page2`。
+5. 确认 AI 与设置页是 `page3`。
+
+如果页面编号不同，后续点击图标时会切到错误页面。优先调整 HMI 页面编号，不建议改固件页面映射。
+
+## 4. 导入或复刻页面背景
+
+有两种做法，推荐先使用第一种，速度最快。
+
+### 方式 A 的完整点击步骤
+
+下面按你在编辑器里实际操作的顺序写。不同版本菜单名字可能略有不同，但操作目的相同。
+
+#### 4.1 打开工程并先另存一份
+
+1. 打开 `E:/USART_HMI/USART HMI.exe`。
+2. 选择菜单里的“打开工程”或工具栏打开按钮。
+3. 打开：
+
+```text
+D:/QQ/serial_warm_home .HMI
+```
+
+4. 打开后先执行一次“另存为”，建议保存成：
+
+```text
+D:/QQ/serial_warm_home_manual_edit.HMI
+```
+
+这样即使后续误删控件，也能回到原文件。
+
+#### 4.2 检查工程基础参数
+
+打开工程后先检查：
+
+| 检查项 | 目标值 |
+| --- | --- |
+| 分辨率 | `480x272` |
+| 方向 | 横屏 |
+| 波特率 | `9600` |
+| 页面 | 至少有 `page0`、`page1`、`page2`、`page3` |
+
+如果页面已经存在，不要新建同名页面，直接在原页面上调整。
+
+#### 4.3 导入 page1 背景
+
+1. 在左侧页面列表点击 `page1`。
+2. 先看页面上是否已有旧背景图。
+3. 如果旧背景是单独图片对象：选中它，删除或隐藏。
+4. 如果旧背景删不掉：把新背景图导入后置于最底层，并确认它盖住旧背景。
+5. 选择“图片/导入图片/添加图片”一类按钮。
+6. 选择图片：
+
+```text
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/ui_assets/page1_air_detail_hmi_blank.png
+```
+
+7. 导入后设置图片属性：
+
+| 属性 | 值 |
+| --- | --- |
+| `x` | `0` |
+| `y` | `0` |
+| `w` | `480` |
+| `h` | `272` |
+
+8. 把图片“置于底层”。
+9. 如果编辑器支持锁定对象，锁定背景图，避免后面误选。
+
+注意：手动导入时优先用 `page1_air_detail_hmi_blank.png`，不要用 `page1_air_detail_hmi_blank_light.png`。后者是脚本压缩测试图，视觉质量和用途都不如正式背景图。
+
+#### 4.4 导入其他页面背景
+
+按同样方式给其他页面导入背景：
+
+| 页面 | 背景图 |
+| --- | --- |
+| `page0` | `page0_home_launcher_hmi_blank.png` |
+| `page1` | `page1_air_detail_hmi_blank.png` |
+| `page2` | `page2_smart_home_hmi_blank.png` |
+| `page3` | `page3_ai_settings_hmi_manual_env.png` |
+
+所有背景都设置：
+
+```text
+x=0
+y=0
+w=480
+h=272
+置于底层
+```
+
+### 方式 A：使用整页背景图
+
+1. 进入 `page0`。
+2. 导入 `ui_assets/page0_home_launcher_hmi_blank.png`。
+3. 让图片铺满整个页面。
+4. 锁定或放到底层，避免后续误点。
+5. 对 `page1`、`page2`、`page3` 重复同样操作：
+
+| 页面 | 背景图 |
+| --- | --- |
+| `page0` | `page0_home_launcher_hmi_blank.png` |
+| `page1` | `page1_air_detail_hmi_blank.png` |
+| `page2` | `page2_smart_home_hmi_blank.png` |
+| `page3` | `page3_ai_settings_hmi_manual_env.png` |
+
+然后在背景图上叠加透明文本控件、进度条和透明触摸热区。
+
+### 方式 B：手工复刻布局
+
+如果你希望后续更容易微调，可以不用整页背景图，而是在编辑器里手动创建文本、触摸热区、图标和色块。这样更灵活，但更耗时间。
+
+不管用哪种方式，控件名必须按本文档填写。
+
+### 方式 A 的图层顺序
+
+如果使用整页背景图，建议每个页面的图层从底到顶保持这样：
+
+```text
+第 1 层：整页背景图 page*.png
+第 2 层：真实文本控件，例如 t_temp、t_humi
+第 3 层：真实进度条控件，例如 j_air
+第 4 层：透明触摸热区，例如 hs_air、hs_next
+```
+
+这样做的原因：
+
+- 背景图只负责视觉，不接收 ESP32 更新。
+- 文本和进度条必须在背景图上方，否则会被背景挡住。
+- 透明触摸热区必须在最上方，否则可能点不到。
+
+透明触摸热区如果盖住文本控件，一般没关系；但如果盖住另一个触摸热区，就会导致误触发。
+
+## 5. 配置 page0 首页
+
+page0 是开机默认页。固件启动后会先发送：
+
+```text
+page 0
+```
+
+然后给 page0 控件赋值。
+
+### 5.1 创建数据控件
+
+在 page0 上创建以下控件，控件名必须完全一致。
+
+建议坐标按 `480x272` 横屏估算，左上角为 `(0,0)`。
+
+| 控件名 | 类型建议 | 建议位置和尺寸 | 用途 | 固件写入示例 |
+| --- | --- | --- | --- | --- |
+| `t_temp` | 文本 | `x=38,y=92,w=95,h=34` | 温度大数字 | `t_temp.txt="26.0 C"` |
+| `t_humi` | 文本 | `x=207,y=92,w=80,h=34` | 湿度大数字 | `t_humi.txt="58.0 %"` |
+| `t_air_state` | 文本 | `x=362,y=88,w=70,h=38` | 空气等级大字 | `t_air_state.txt="良"` |
+| `t_air` | 文本 | `x=344,y=122,w=95,h=22` | 空气等级和 MQ135 原始值，可放在“空气质量”附近 | `t_air.txt="良(820)"` |
+| `j_air` | 进度条 | `x=340,y=148,w=95,h=8` | 空气评分，可做细条或隐藏在卡片底部 | `j_air.val=75` |
+| `t_advice` | 文本 | `x=24,y=52,w=260,h=20` | 建议文案，可放在“室内环境”副标题区域 | `t_advice.txt="Keep ventilation"` |
+| `t_ai_state` | 文本 | `x=84,y=52,w=100,h=20` | AI 状态，可接在“AI 待机”位置 | `t_ai_state.txt="IDLE"` |
+
+建议：
+
+- 文本控件先填占位文本，例如 `--`。
+- `j_air` 的最小值设为 `0`，最大值设为 `100`。
+- 如果中文字体显示不稳定，先用英文验收事件和数据刷新，再回头调字体。
+- 空白底图已经去掉了固定示例数据，真实文本控件只需要覆盖空出来的位置。
+- 如果你误用了带示例数据的效果图，必须让真实文本控件完整盖住假数据区域，否则会出现重影。
+
+### 5.2 创建四个图标热区
+
+图标上方放置透明触摸热区即可，不需要创建按钮控件。
+
+| 控件名 | 建议位置和尺寸 | 放置位置 | 点击后进入 | 事件字符串 |
+| --- | --- | --- | --- | --- |
+| `hs_air` | `x=32,y=178,w=92,h=72` | 空气图标卡片上方 | `page1` | `BTN,PAGE,AIR_DETAIL` |
+| `hs_home` | `x=142,y=178,w=92,h=72` | 家居图标卡片上方 | `page2` | `BTN,PAGE,SMART_HOME` |
+| `hs_ai` | `x=250,y=178,w=92,h=72` | AI 图标卡片上方 | `page3` | `BTN,PAGE,AI` |
+| `hs_settings` | `x=356,y=178,w=92,h=72` | 设置图标卡片上方 | `page3` | `BTN,PAGE,SETTINGS` |
+
+热区设置建议：
+
+1. 热区尺寸比图标稍大一些，方便触摸。
+2. 热区不要互相重叠。
+3. 热区不要被左右滑动热区盖住。
+4. 如果控件支持透明属性，把背景和边框设为透明。
+
+### 5.3 给图标热区填写事件
+
+每个热区的按下事件或释放事件中填写两行命令。
+
+空气详情图标：
+
+```text
+prints "BTN,PAGE,AIR_DETAIL",0
+printh 0a
+```
+
+智能家居图标：
+
+```text
+prints "BTN,PAGE,SMART_HOME",0
+printh 0a
+```
+
+AI 图标：
+
+```text
+prints "BTN,PAGE,AI",0
+printh 0a
+```
+
+设置图标：
+
+```text
+prints "BTN,PAGE,SETTINGS",0
+printh 0a
+```
+
+说明：
+
+- `prints "...",0` 负责发送 ASCII 字符串。
+- `printh 0a` 负责发送换行，固件用它判断一条事件结束。
+- 固件大小写不敏感，但建议统一大写。
+
+## 6. 配置 page1 空气详情页
+
+page1 现在改为“空气评分详情页”。原因是当前硬件只有 DHT11 和 MQ135：
+
+- DHT11 能给出温度和湿度。
+- MQ135 当前只可靠使用 ADC 原始值，并根据阈值估算空气等级和空气评分。
+- 当前没有 PM2.5、CO2、TVOC 的真实传感器，所以 page1 不再要求创建 `t_pm25`、`t_co2`、`t_tvoc_level`。
+
+本页推荐效果：左侧是空气评分仪表盘，中上方显示空气等级和 MQ135 原始值，右侧是趋势图装饰区，底部显示温度、湿度和舒适度。
+
+### 6.1 导入 page1 新背景
+
+1. 打开 `D:/QQ/serial_warm_home .HMI`。
+2. 在左侧页面列表选择 `page1`。
+3. 删除或隐藏旧的 page1 背景图。
+4. 导入新背景图：
+
+```text
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/ui_assets/page1_air_detail_hmi_blank.png
+```
+
+5. 设置图片位置为 `x=0,y=0,w=480,h=272`。
+6. 把背景图放到最底层。
+7. 锁定背景图或把它命名成容易识别的名字，例如 `p_bg1`。
+
+这张背景图不包含固定读数，只提供仪表盘、卡片和趋势图视觉框架。真实数据必须由下面的 HMI 控件显示。
+
+### 6.2 创建 page1 数据控件
+
+按下表创建控件。所有控件名都不超过 14 个字符，适配你当前编辑器限制。
+
+| 控件名 | 类型建议 | 建议位置和尺寸 | 用途 | 固件写入示例 |
+| --- | --- | --- | --- | --- |
+| `t_air_score` | 文本 | `x=70,y=116,w=78,h=32` | 空气评分文本 | `t_air_score.txt="75/100"` |
+| `j_air_detail` | 进度条 | `x=42,y=160,w=132,h=10` | 空气评分条 | `j_air_detail.val=75` |
+| `t_air_state` | 文本 | `x=224,y=92,w=84,h=22` | 空气等级 | `t_air_state.txt="良"` |
+| `t_air_raw` | 文本 | `x=348,y=92,w=92,h=22` | MQ135 原始 ADC 值 | `t_air_raw.txt="820"` |
+| `t_comfort` | 文本 | `x=38,y=158,w=124,h=22` | 温湿度舒适度 | `t_comfort.txt="舒适"` |
+| `t_temp_d` | 文本 | `x=38,y=226,w=78,h=20` | 详情页温度 | `t_temp_d.txt="26.0 C"` |
+| `t_humi_d` | 文本 | `x=162,y=226,w=78,h=20` | 详情页湿度 | `t_humi_d.txt="58.0 %"` |
+
+建议属性：
+
+| 属性 | 建议 |
+| --- | --- |
+| 背景 | 透明；如果编辑器不支持透明，就选与卡片底色接近的浅色 |
+| 边框 | 无 |
+| 对齐 | 数值类居中或左对齐均可，但同一卡片内保持一致 |
+| 字体 | 先用英文字体验证；中文等级显示正常后再切换含中文的字体 |
+| 字号 | 评分 `22-28`，其他数值 `16-20` |
+| 文本初值 | 可以填 `--`、`0/100`、`UNKNOWN`，最终会被 ESP32 覆盖 |
+
+不要再创建旧控件：
+
+```text
+t_pm25
+t_co2
+t_tvoc_level
+```
+
+除非后续真的接入 PM2.5、CO2、TVOC 传感器，并同步修改 `SerialHmiAirQualityData`、`RefreshAirDetailPage()` 和 `serial_hmi_widgets.json`。
+
+### 6.3 创建空气质量曲线/波形控件
+
+当前固件已经会在 `page1` 空气详情页回放最近 30 条空气评分曲线。实现逻辑如下：
+
+```text
+进入 page1 或 page1 刷新时：
+cle 12,0
+add 12,0,<air_score>
+add 12,0,<air_score>
+...
+```
+
+注意：TJC 曲线写入命令是 `add objid,ch,val`，这里的 `objid` 是编辑器给控件分配的数字 ID，不是控件名。本次已从 `D:/QQ/serial_warm_home  (1).HMI` 扫描确认 `c_air` 数字 ID 为 `12`，固件当前按 `12` 写入。
+
+请按下面步骤检查或创建曲线控件：
+
+1. 在 `page1` 添加一个“曲线/波形”控件。
+2. 控件名填 `c_air`。
+3. 建议位置：`x=224,y=166,w=218,h=54`。
+4. 通道数先设为 `1`。
+5. 纵向范围按 `0-100` 评分理解。
+6. 背景设置透明或接近背景色。
+7. 检查编辑器属性栏中的数字 ID 是否为 `12`。
+8. 如果不是 `12`，要么把固件里的 `kAirCurveId = 12` 改成新 ID 并重新编译，要么重新调整 HMI 控件创建顺序让 `c_air` 保持 ID 12。
+
+```text
+当前固件固定发送：
+cle 12,0
+add 12,0,75
+```
+
+如果曲线仍然不显示，优先检查当前页面是否真的停留在 `page1`，因为 TJC 的 `add` 通常只对当前页面上的曲线控件生效。固件已经把历史评分缓存到 ESP32 内部，切到 `page1` 后会先 `cle 12,0` 再重放 `add 12,0,val`。
+
+### 6.4 创建返回首页触摸热区
+
+创建一个返回首页触摸热区：
+
+| 控件名 | 建议位置和尺寸 | 事件字符串 |
+| --- | --- | --- |
+| `hs_back` | `x=10,y=8,w=105,h=42`，覆盖左上标题附近或你额外放置的返回区域 | `BTN,PAGE,HOME` |
+
+事件命令：
+
+```text
+prints "BTN,PAGE,HOME",0
+printh 0a
+```
+
+## 7. 配置 page2 智能家居页
+
+page2 用于放智能家居控制触摸热区。当前固件只解析并记录日志，还没有真正控制外设。
+
+### 7.1 创建设备触摸热区
+
+| 控件名 | 建议位置和尺寸 | 用途 | 事件字符串 |
+| --- | --- | --- | --- |
+| `hs_purifier` | `x=36,y=78,w=112,h=62` | 空气净化器 | `BTN,DEVICE,AIR_PURIFIER,TOGGLE` |
+| `hs_fan` | `x=184,y=78,w=112,h=62` | 新风或风扇 | `BTN,DEVICE,FAN,TOGGLE` |
+| `hs_humid` | `x=332,y=78,w=112,h=62` | 加湿器 | `BTN,DEVICE,HUMIDIFIER,TOGGLE` |
+| `hs_auto` | `x=110,y=172,w=112,h=58` | 自动模式 | `BTN,MODE,AUTO,TOGGLE` |
+| `hs_eco` | `x=258,y=172,w=112,h=58` | 节能模式 | `BTN,MODE,ECO,TOGGLE` |
+| `hs_back` | `x=10,y=8,w=105,h=42` | 返回首页 | `BTN,PAGE,HOME` |
+
+`hs_eco` 当前用于软件节能模式，固件已经支持 `BTN,MODE,ECO,TOGGLE`。开启节能后，ESP32 不进入 deep sleep，会关闭自动模式和净化/新风/加湿输出，但保留语音、MCP、串口屏和传感器采集。
+
+### 7.2 填写设备触摸热区事件
+
+空气净化器：
+
+```text
+prints "BTN,DEVICE,AIR_PURIFIER,TOGGLE",0
+printh 0a
+```
+
+新风或风扇：
+
+```text
+prints "BTN,DEVICE,FAN,TOGGLE",0
+printh 0a
+```
+
+加湿器：
+
+```text
+prints "BTN,DEVICE,HUMIDIFIER,TOGGLE",0
+printh 0a
+```
+
+自动模式：
+
+```text
+prints "BTN,MODE,AUTO,TOGGLE",0
+printh 0a
+```
+
+节能模式：
+
+```text
+prints "BTN,MODE,ECO,TOGGLE",0
+printh 0a
+```
+
+返回首页：
+
+```text
+prints "BTN,PAGE,HOME",0
+printh 0a
+```
+
+## 8. 配置 page3 AI 与设置页
+
+page3 当前用于显示 AI 状态和串口连接状态。
+
+### 8.1 创建显示控件
+
+| 控件名 | 类型建议 | 建议位置和尺寸 | 用途 | 固件写入示例或事件 |
+| --- | --- | --- | --- | --- |
+| `t_ai_state` | 文本 | `x=252,y=82,w=175,h=28` | AI 状态 | `t_ai_state.txt="IDLE"` |
+| `t_link_state` | 文本 | `x=252,y=148,w=175,h=28` | 串口连接状态 | `t_link_state.txt="UART2 9600"` |
+| `hs_env_m` | 触摸热区 | `x=36,y=184,w=84,h=42` | 手动环境开关 | `BTN,ENV,MANUAL,TOGGLE` |
+| `hs_env_good` | 触摸热区 | `x=132,y=184,w=70,h=42` | 舒适预设 | `BTN,ENV,SCENE,GOOD` |
+| `hs_env_hot` | 触摸热区 | `x=214,y=184,w=70,h=42` | 高温预设 | `BTN,ENV,SCENE,HOT` |
+| `hs_env_dry` | 触摸热区 | `x=296,y=184,w=70,h=42` | 干燥预设 | `BTN,ENV,SCENE,DRY` |
+| `hs_env_bad` | 触摸热区 | `x=378,y=184,w=70,h=42` | 污染预设 | `BTN,ENV,SCENE,POLLUTED` |
+| `hs_back` | 触摸热区 | `x=10,y=8,w=120,h=42` | 返回首页 | `BTN,PAGE,HOME` |
+
+### 8.2 填写手动环境触摸事件
+
+这些热区用于在没有办法制造真实高温、干燥、污染环境时，手动触发自动模式测试。控件名都不超过 14 个字符，符合当前编辑器限制。
+
+手动环境开关 `hs_env_m`：
+
+```text
+prints "BTN,ENV,MANUAL,TOGGLE",0
+printh 0a
+```
+
+舒适环境预设 `hs_env_good`：
+
+```text
+prints "BTN,ENV,SCENE,GOOD",0
+printh 0a
+```
+
+高温环境预设 `hs_env_hot`：
+
+```text
+prints "BTN,ENV,SCENE,HOT",0
+printh 0a
+```
+
+干燥环境预设 `hs_env_dry`：
+
+```text
+prints "BTN,ENV,SCENE,DRY",0
+printh 0a
+```
+
+污染环境预设 `hs_env_bad`：
+
+```text
+prints "BTN,ENV,SCENE,POLLUTED",0
+printh 0a
+```
+
+验证时打开 ESP32 monitor，按下每个热区后应看到类似：
+
+```text
+Screen event: raw=BTN,ENV,SCENE,POLLUTED target=SCENE action=POLLUTED
+```
+
+如果日志出现但页面数据没有立刻变化，等待一个屏幕刷新周期，或切回首页再进入空气详情页。固件会把手动环境写入 `t_temp`、`t_humi`、`t_air_state`、`t_advice`、`t_comfort` 和 `c_air`。
+
+### 8.3 填写返回首页事件
+
+```text
+prints "BTN,PAGE,HOME",0
+printh 0a
+```
+
+## 9. 配置左右滑动切页
+
+目标效果：像手机屏幕一样左右切换页面。当前固件支持两种方式。
+
+### 9.1 方式 A：编辑器支持滑动识别
+
+如果编辑器支持滑动或手势事件，在每个页面配置：
+
+| 动作 | 事件字符串 | 固件行为 |
+| --- | --- | --- |
+| 左滑 | `SWIPE,LEFT` | 切到下一页 |
+| 右滑 | `SWIPE,RIGHT` | 切到上一页 |
+
+左滑事件命令：
+
+```text
+prints "SWIPE,LEFT",0
+printh 0a
+```
+
+右滑事件命令：
+
+```text
+prints "SWIPE,RIGHT",0
+printh 0a
+```
+
+如果要做过渡效果，可以在发送事件前先播放 HMI 侧动画或切换过渡图：
+
+```text
+transition_swipe_left.png
+transition_swipe_right.png
+```
+
+动画只是视觉效果，真正切页仍由 ESP32 收到 `SWIPE,LEFT` 或 `SWIPE,RIGHT` 后执行。
+
+### 9.2 方式 B：编辑器不支持滑动识别
+
+如果编辑器没有真正的滑动识别，就用透明热区模拟。
+
+每个页面创建两个透明触摸热区：
+
+| 控件名建议 | 位置建议 | 事件字符串 | 固件行为 |
+| --- | --- | --- | --- |
+| `hs_next` | 屏幕右侧 40-80 px 宽 | `BTN,PAGE,NEXT` | 下一页 |
+| `hs_prev` | 屏幕左侧 40-80 px 宽 | `BTN,PAGE,PREV` | 上一页 |
+
+推荐坐标：
+
+| 页面 | `hs_prev` 建议坐标 | `hs_next` 建议坐标 | 备注 |
+| --- | --- | --- | --- |
+| `page0` | `x=0,y=58,w=24,h=110` | `x=456,y=58,w=24,h=110` | 避开下方四个图标卡片 |
+| `page1` | `x=0,y=55,w=32,h=170` | `x=448,y=55,w=32,h=170` | 避开四个数据卡片中心区域 |
+| `page2` | `x=0,y=55,w=32,h=170` | `x=448,y=55,w=32,h=170` | 避开设备按钮 |
+| `page3` | `x=0,y=55,w=32,h=160` | `x=448,y=55,w=32,h=160` | 避开状态卡片 |
+
+下一页事件：
+
+```text
+prints "BTN,PAGE,NEXT",0
+printh 0a
+```
+
+上一页事件：
+
+```text
+prints "BTN,PAGE,PREV",0
+printh 0a
+```
+
+热区注意事项：
+
+1. 不要覆盖 page0 的四个图标热区。
+2. 不要覆盖 page1-page3 的返回首页触摸热区。
+3. 如果误触严重，把左右热区缩窄到 40 px。
+4. 如果触摸不灵敏，可以扩大到 80 px，但要重新检查是否覆盖其他触摸热区。
+
+在 USART HMI 编辑器里，如果透明触摸热区仍然挡住控件编辑，可以先把透明度设低一点便于定位，配置完成后再改回透明。
+
+## 10. 推荐配置顺序
+
+按这个顺序做，排错最省时间。
+
+1. 打开 `D:/QQ/serial_warm_home .HMI`。
+2. 确认工程分辨率、横屏、波特率 `9600`。
+3. 确认页面编号是 `page0` 到 `page3`。
+4. 给 page0 导入或复刻首页。
+5. 创建 page0 数据控件。
+6. 创建 page0 四个图标触摸热区。
+7. 只先给 `hs_air` 配置 `BTN,PAGE,AIR_DETAIL`。
+8. 下载到屏幕，先验证 page0 到 page1 是否能切换。
+9. 验证通过后，再配置剩余三个图标。
+10. 配置 page1 的数据控件和返回首页触摸热区。
+11. 配置 page2 的设备触摸热区。
+12. 配置 page3 的显示控件、手动环境预设热区和返回首页触摸热区。
+13. 最后再加左右滑动或透明翻页热区。
+14. 全部配置完后再次保存、编译、下载。
+
+建议每配置一类事件就下载验证一次，不要等所有事件都写完才排查。
+
+## 10.3 完全手动配置总流程
+
+如果你现在要从头到尾手动完成，按下面顺序执行。每一步都完成后再进入下一步。
+
+### 第一步：只做 page0 到 page1 的最小点击验证
+
+1. 打开 `D:/QQ/serial_warm_home .HMI`，并另存为 `D:/QQ/serial_warm_home_manual_edit.HMI`。
+2. 进入 `page0`。
+3. 确认或导入 `page0_home_launcher_hmi_blank.png` 背景。
+4. 添加一个 `触摸热区`。
+5. 热区名称填：
+
+```text
+hs_air
+```
+
+6. 热区坐标建议：
+
+```text
+x=32
+y=178
+w=92
+h=72
+```
+
+7. 选中 `hs_air`。
+8. 打开右侧 `事件` 面板。
+9. 选择 `弹起事件(0)`。
+10. 填入：
+
+```text
+prints "BTN,PAGE,AIR_DETAIL",0
+printh 0a
+```
+
+11. 不要勾选 `发送键值`。
+12. 保存、编译、下载到屏幕。
+13. 烧录或运行 ESP32 固件，打开 monitor。
+14. 点屏幕上的空气图标。
+15. monitor 里应看到：
+
+```text
+Screen event: raw=BTN,PAGE,AIR_DETAIL target=AIR_DETAIL action=
+[TJC] page 1
+```
+
+如果这一步不通过，先不要继续做其他页面，先排查第 18 节。
+
+### 第二步：补齐 page0 数据控件和图标热区
+
+在 `page0` 创建这些数据控件：
+
+| 控件名 | 控件类型 | 坐标建议 |
+| --- | --- | --- |
+| `t_temp` | 文本 | `x=38,y=92,w=95,h=34` |
+| `t_humi` | 文本 | `x=207,y=92,w=80,h=34` |
+| `t_air_state` | 文本 | `x=362,y=88,w=70,h=38` |
+| `t_air` | 文本 | `x=344,y=122,w=95,h=22` |
+| `j_air` | 进度条 | `x=340,y=148,w=95,h=8` |
+| `t_advice` | 文本 | `x=24,y=52,w=260,h=20` |
+| `t_ai_state` | 文本 | `x=84,y=52,w=100,h=20` |
+
+再创建这些触摸热区：
+
+| 控件名 | 坐标建议 | 弹起事件 |
+| --- | --- | --- |
+| `hs_air` | `x=32,y=178,w=92,h=72` | `BTN,PAGE,AIR_DETAIL` |
+| `hs_home` | `x=142,y=178,w=92,h=72` | `BTN,PAGE,SMART_HOME` |
+| `hs_ai` | `x=250,y=178,w=92,h=72` | `BTN,PAGE,AI` |
+| `hs_settings` | `x=356,y=178,w=92,h=72` | `BTN,PAGE,SETTINGS` |
+
+对应事件脚本分别是：
+
+```text
+prints "BTN,PAGE,AIR_DETAIL",0
+printh 0a
+```
+
+```text
+prints "BTN,PAGE,SMART_HOME",0
+printh 0a
+```
+
+```text
+prints "BTN,PAGE,AI",0
+printh 0a
+```
+
+```text
+prints "BTN,PAGE,SETTINGS",0
+printh 0a
+```
+
+### 第三步：配置 page1 空气评分详情页
+
+进入 `page1`，导入背景：
+
+```text
+page1_air_detail_hmi_blank.png
+```
+
+创建这些控件：
+
+| 控件名 | 控件类型 | 坐标建议 | 初始值建议 |
+| --- | --- | --- | --- |
+| `t_air_score` | 文本 | `x=70,y=116,w=78,h=32` | `--/100` |
+| `j_air_detail` | 进度条 | `x=42,y=160,w=132,h=10` | `0` |
+| `t_air_state` | 文本 | `x=224,y=92,w=84,h=22` | `--` |
+| `t_air_raw` | 文本 | `x=348,y=92,w=92,h=22` | `--` |
+| `t_comfort` | 文本 | `x=38,y=158,w=124,h=22` | `--` |
+| `t_temp_d` | 文本 | `x=38,y=226,w=78,h=20` | `-- C` |
+| `t_humi_d` | 文本 | `x=162,y=226,w=78,h=20` | `-- %` |
+| `hs_back` | 触摸热区 | `x=10,y=8,w=105,h=42` | 无 |
+
+`hs_back` 的 `弹起事件(0)` 填：
+
+```text
+prints "BTN,PAGE,HOME",0
+printh 0a
+```
+
+不要创建旧控件：
+
+```text
+t_pm25
+t_co2
+t_tvoc_level
+```
+
+### 第四步：配置 page2 智能家居页
+
+进入 `page2`，导入背景：
+
+```text
+page2_smart_home_hmi_blank.png
+```
+
+创建触摸热区：
+
+| 控件名 | 坐标建议 | 弹起事件 |
+| --- | --- | --- |
+| `hs_purifier` | `x=36,y=78,w=112,h=62` | `BTN,DEVICE,AIR_PURIFIER,TOGGLE` |
+| `hs_fan` | `x=184,y=78,w=112,h=62` | `BTN,DEVICE,FAN,TOGGLE` |
+| `hs_humid` | `x=332,y=78,w=112,h=62` | `BTN,DEVICE,HUMIDIFIER,TOGGLE` |
+| `hs_auto` | `x=110,y=172,w=112,h=58` | `BTN,MODE,AUTO,TOGGLE` |
+| `hs_eco` | `x=258,y=172,w=112,h=58` | `BTN,MODE,ECO,TOGGLE` |
+| `hs_back` | `x=10,y=8,w=105,h=42` | `BTN,PAGE,HOME` |
+
+示例，`hs_fan` 填：
+
+```text
+prints "BTN,DEVICE,FAN,TOGGLE",0
+printh 0a
+```
+
+其他热区按表格替换事件字符串。
+
+### 第五步：配置 page3 AI 与设置页
+
+进入 `page3`，导入背景：
+
+```text
+page3_ai_settings_hmi_manual_env.png
+```
+
+创建控件：
+
+| 控件名 | 控件类型 | 坐标建议 | 初始值建议 |
+| --- | --- | --- | --- |
+| `t_ai_state` | 文本 | `x=252,y=82,w=175,h=28` | `IDLE` |
+| `t_link_state` | 文本 | `x=252,y=148,w=175,h=28` | `UART2 9600` |
+| `hs_env_m` | 触摸热区 | `x=36,y=184,w=84,h=42` | 无 |
+| `hs_env_good` | 触摸热区 | `x=132,y=184,w=70,h=42` | 无 |
+| `hs_env_hot` | 触摸热区 | `x=214,y=184,w=70,h=42` | 无 |
+| `hs_env_dry` | 触摸热区 | `x=296,y=184,w=70,h=42` | 无 |
+| `hs_env_bad` | 触摸热区 | `x=378,y=184,w=70,h=42` | 无 |
+| `hs_back` | 触摸热区 | `x=10,y=8,w=120,h=42` | 无 |
+
+手动环境热区的 `弹起事件(0)` 分别填：
+
+| 控件名 | 事件脚本 |
+| --- | --- |
+| `hs_env_m` | `prints "BTN,ENV,MANUAL,TOGGLE",0` 后接 `printh 0a` |
+| `hs_env_good` | `prints "BTN,ENV,SCENE,GOOD",0` 后接 `printh 0a` |
+| `hs_env_hot` | `prints "BTN,ENV,SCENE,HOT",0` 后接 `printh 0a` |
+| `hs_env_dry` | `prints "BTN,ENV,SCENE,DRY",0` 后接 `printh 0a` |
+| `hs_env_bad` | `prints "BTN,ENV,SCENE,POLLUTED",0` 后接 `printh 0a` |
+
+`hs_back` 的 `弹起事件(0)` 填：
+
+```text
+prints "BTN,PAGE,HOME",0
+printh 0a
+```
+
+### 第六步：最后再加左右翻页热区
+
+所有图标和返回热区验证通过后，再加左右翻页热区。不要一开始就加，否则容易覆盖图标热区，排查会变复杂。
+
+每个页面都添加：
+
+| 控件名 | 坐标建议 | 弹起事件 |
+| --- | --- | --- |
+| `hs_prev` | `x=0,y=55,w=32,h=170` | `BTN,PAGE,PREV` |
+| `hs_next` | `x=448,y=55,w=32,h=170` | `BTN,PAGE,NEXT` |
+
+`hs_prev` 填：
+
+```text
+prints "BTN,PAGE,PREV",0
+printh 0a
+```
+
+`hs_next` 填：
+
+```text
+prints "BTN,PAGE,NEXT",0
+printh 0a
+```
+
+如果点击图标时反而翻页，说明左右热区盖住了图标。处理方式：
+
+1. 缩窄 `hs_prev` / `hs_next`。
+2. 把图标热区移动到最上层。
+3. 确认热区之间没有重叠。
+
+### 第七步：保存、编译、下载、验证
+
+每次改完一组页面后都执行：
+
+1. 保存 HMI 工程。
+2. 编译 HMI 工程。
+3. 下载到串口屏。
+4. ESP32 打开 monitor。
+5. 触摸屏幕验证事件。
+
+至少验证这些日志：
+
+```text
+Screen event: raw=BTN,PAGE,AIR_DETAIL
+Screen event: raw=BTN,PAGE,HOME
+Screen event: raw=BTN,PAGE,NEXT
+Screen event: raw=BTN,PAGE,PREV
+Screen event: raw=BTN,DEVICE,FAN,TOGGLE
+Screen event: raw=BTN,MODE,ECO,TOGGLE
+Screen event: raw=BTN,ENV,MANUAL,TOGGLE
+Screen event: raw=BTN,ENV,SCENE,POLLUTED
+```
+
+page1 控件刷新时应看到类似：
+
+```text
+[TJC] t_air_score.txt="75/100"
+[TJC] j_air_detail.val=75
+[TJC] t_air_raw.txt="820"
+[TJC] t_temp_d.txt="26.0 C"
+[TJC] t_humi_d.txt="58.0 %"
+```
+
+## 10.1 第一次最小验证闭环
+
+如果你是第一次在这个 HMI 工程里配置事件，不要一口气把所有触摸热区都配完。建议先只做一个最小闭环：
+
+1. 只确认 `page0` 和 `page1` 存在。
+2. 只给 `page0` 导入 `page0_home_launcher_hmi_blank.png`。
+3. 只在 `page0` 创建一个透明触摸热区 `hs_air`。
+4. 只给 `hs_air` 填事件：
+
+```text
+prints "BTN,PAGE,AIR_DETAIL",0
+printh 0a
+```
+
+5. 保存、编译、下载到屏幕。
+6. ESP32 打开 monitor。
+7. 点击空气图标。
+8. 看到以下日志后，再继续配置其他触摸热区：
+
+```text
+Screen event: raw=BTN,PAGE,AIR_DETAIL target=AIR_DETAIL action=
+[TJC] page 1
+```
+
+这个闭环能同时验证：
+
+- HMI 触摸热区事件写法正确。
+- 屏幕 TX 到 ESP32 RX 接线正确。
+- ESP32 固件事件解析正确。
+- HMI 页面编号 `page1` 正确。
+
+如果这个闭环不通，先不要继续配置其他页面，直接按第 18 节排查。
+
+## 10.2 事件应该填在哪个事件栏
+
+不同 USART HMI 编辑器版本里，触摸热区事件栏名称可能略有差异。优先选择“释放事件”或“弹起事件”，其次选择“按下事件”。
+
+按你当前截图里的界面：
+
+| 界面区域 | 是否填写 `prints` / `printh` 命令 | 说明 |
+| --- | --- | --- |
+| 左侧 `输出` 面板 | 不填 | 这里是编辑器输出/日志显示区域，不是控件脚本区 |
+| 右侧 `事件` 面板 | 要填 | 选中触摸热区后，在这里填写触摸触发脚本 |
+| `按下事件(0)` | 可填，但不推荐首选 | 手指刚按下就发送，容易误触或重复触发 |
+| `弹起事件(0)` | 推荐填写 | 手指松开后发送，更接近普通点击，误触更少 |
+| `发送键值` 复选框 | 不勾选 | 当前固件接收的是 `prints` 发出的 ASCII 事件字符串，不使用键值机制 |
+
+实际操作时，先在页面上选中某个触摸热区，例如 `hs_air`，然后切到右侧 `事件 -> 弹起事件(0)`，在下面的脚本框里输入：
+
+```text
+prints "BTN,PAGE,AIR_DETAIL",0
+printh 0a
+```
+
+如果你填在 `按下事件(0)`，也可能能触发，但不建议作为默认做法。不要同时在 `按下事件(0)` 和 `弹起事件(0)` 填同一段命令，否则一次触摸可能发两次事件。
+
+推荐：
+
+| 控件类型 | 优先填写位置 | 原因 |
+| --- | --- | --- |
+| 图标入口触摸热区 | 释放事件/弹起事件 | 手指松开后才触发，误触更少 |
+| 返回首页触摸热区 | 释放事件/弹起事件 | 和普通点击行为一致 |
+| 设备控制触摸热区 | 释放事件/弹起事件 | 避免长按时重复发送 |
+| 左右透明翻页热区 | 释放事件/弹起事件 | 避免轻触时连续翻页 |
+| 真实滑动手势 | 滑动完成事件 | 先让 HMI 完成手势判断，再发给 ESP32 |
+
+不建议同时在“按下事件”和“释放事件”里填同一段 `prints`，否则一次点击可能发送两条事件，造成页面跳两次。
+
+## 10.2.1 当前编辑器控件选择建议
+
+你截图里能看到 `按钮`、`图片`、`切图`、`触摸热区`、`触摸捕捉`、`滑块` 等控件。当前项目建议这样选：
+
+| 目标 | 推荐控件 | 原因 |
+| --- | --- | --- |
+| 图标点击进入功能页 | `触摸热区` | 只需要覆盖底图图标并发送事件，最稳定 |
+| 返回首页 | `触摸热区` | 不需要额外按钮外观，底图已经提供视觉 |
+| 左右翻页 | `触摸热区` | 用左右边缘透明热区模拟，固件已支持 `BTN,PAGE,NEXT/PREV` |
+| 真实滑动手势 | 暂不推荐 `触摸捕捉` | 需要坐标/轨迹判断，当前固件未按坐标协议解析 |
+| 页面过渡动画 | 可选 `切图` | 只做视觉过渡，最终仍要发送 `BTN,PAGE,NEXT/PREV` 或 `SWIPE,LEFT/RIGHT` |
+| 数据显示 | 文本、数字、进度条 | 这些控件由 ESP32 通过 `.txt` 或 `.val` 更新 |
+
+因此，本轮最稳的滑动换页实现方式是：
+
+1. 每个页面放两个透明 `触摸热区`。
+2. 左边热区命名 `hs_prev`，放在屏幕左边缘。
+3. 右边热区命名 `hs_next`，放在屏幕右边缘。
+4. 在 `hs_prev` 的 `弹起事件(0)` 填：
+
+```text
+prints "BTN,PAGE,PREV",0
+printh 0a
+```
+
+5. 在 `hs_next` 的 `弹起事件(0)` 填：
+
+```text
+prints "BTN,PAGE,NEXT",0
+printh 0a
+```
+
+这不是严格意义上的手势滑动，但交互上接近“点按屏幕边缘切页”，实现稳定、排错简单，并且不需要改固件。
+
+## 10.3 透明触摸热区的具体设置建议
+
+透明触摸热区的目标是“能接收触摸，但视觉上不遮挡背景图”。
+
+建议属性：
+
+| 属性 | 建议值 |
+| --- | --- |
+| 文本 | 空字符串，或只填一个空格 |
+| 背景 | 透明，或与背景同色 |
+| 边框 | 无边框 |
+| 字体颜色 | 透明或与背景同色 |
+| 触摸 | 启用 |
+| 可见 | 启用 |
+
+如果编辑器不支持完全透明，可以先设置成浅灰色半透明方便调试。验收完成后再改成透明。
+
+配置透明触摸热区时，建议临时给每个热区写一个小标签，例如 `AIR`、`NEXT`。全部事件验证通过后，再把文字清空。
+
+## 11. ESP32 烧录和 monitor 验收
+
+在 ESP32 工程根目录执行：
+
+```powershell
+cd E:\espwork\xiaozhi-esp32\xiaozhi-esp32
+& 'D:\esp\Espressif\frameworks\esp-idf-v5.5.2\export.ps1'
+idf.py -B build_codex_check -p COMx flash monitor
+```
+
+把 `COMx` 替换为实际串口号。
+
+如果只想构建验证：
+
+```powershell
+idf.py -B build_codex_check build
+```
+
+## 12. 验收 1：启动和控件刷新
+
+屏幕下载完成、ESP32 固件启动后，monitor 中应看到类似：
+
+```text
+[TJC] page 0
+[TJC] t_ai_state.txt="IDLE"
+[TJC] t_temp.txt="26.0 C"
+[TJC] t_humi.txt="58.0 %"
+[TJC] t_air_state.txt="良"
+[TJC] t_air.txt="良(820)"
+[TJC] j_air.val=75
+[TJC] t_advice.txt="Keep ventilation"
+```
+
+如果看到 `[TJC]` 日志但屏幕不刷新，优先检查：
+
+1. 控件名是否完全一致。
+2. 控件是否在当前页面存在。
+3. 屏幕串口是否接反。
+4. 屏幕波特率是否为 `9600`。
+
+## 13. 验收 2：page0 图标事件
+
+依次点击 page0 的四个图标。
+
+空气详情图标应看到：
+
+```text
+Screen event: raw=BTN,PAGE,AIR_DETAIL target=AIR_DETAIL action=
+[TJC] page 1
+```
+
+智能家居图标应看到：
+
+```text
+Screen event: raw=BTN,PAGE,SMART_HOME target=SMART_HOME action=
+[TJC] page 2
+```
+
+AI 图标应看到：
+
+```text
+Screen event: raw=BTN,PAGE,AI target=AI action=
+[TJC] page 3
+```
+
+设置图标应看到：
+
+```text
+Screen event: raw=BTN,PAGE,SETTINGS target=SETTINGS action=
+[TJC] page 3
+```
+
+注意：当前 `AI` 和 `SETTINGS` 都映射到 `page3`。
+
+## 14. 验收 3：返回首页
+
+在 page1、page2、page3 点击返回首页触摸热区。
+
+应看到：
+
+```text
+Screen event: raw=BTN,PAGE,HOME target=HOME action=
+[TJC] page 0
+```
+
+如果 monitor 有事件但页面没回首页，检查 HMI 页面是否真的是 `page0`。
+
+## 15. 验收 4：左右滑动或透明翻页
+
+如果使用 `SWIPE`：
+
+```text
+Screen event: raw=SWIPE,LEFT target=LEFT action=
+[TJC] page <下一页>
+
+Screen event: raw=SWIPE,RIGHT target=RIGHT action=
+[TJC] page <上一页>
+```
+
+如果使用透明热区：
+
+```text
+Screen event: raw=BTN,PAGE,NEXT target=NEXT action=
+[TJC] page <下一页>
+
+Screen event: raw=BTN,PAGE,PREV target=PREV action=
+[TJC] page <上一页>
+```
+
+页面切换是循环的：
+
+```text
+page0 -> page1 -> page2 -> page3 -> page0
+page0 <- page1 <- page2 <- page3 <- page0
+```
+
+## 16. 验收 5：page2 设备事件
+
+在 page2 点击设备触摸热区。
+
+空气净化器：
+
+```text
+Screen event: raw=BTN,DEVICE,AIR_PURIFIER,TOGGLE target=AIR_PURIFIER action=TOGGLE
+```
+
+风扇或新风：
+
+```text
+Screen event: raw=BTN,DEVICE,FAN,TOGGLE target=FAN action=TOGGLE
+```
+
+加湿器：
+
+```text
+Screen event: raw=BTN,DEVICE,HUMIDIFIER,TOGGLE target=HUMIDIFIER action=TOGGLE
+```
+
+自动模式：
+
+```text
+Screen event: raw=BTN,MODE,AUTO,TOGGLE target=AUTO action=TOGGLE
+```
+
+节能模式：
+
+```text
+Screen event: raw=BTN,MODE,ECO,TOGGLE target=ECO action=TOGGLE
+```
+
+这些日志说明事件已经从屏幕发到 ESP32。当前固件会直接驱动 GPIO13 红色 LED、GPIO14 蓝色 LED 和 GPIO21 360°连续旋转舵机风扇。`hs_fan` 事件名保持 `BTN,DEVICE,FAN,TOGGLE` 不变，固件内部按 `1500us/1600us/1750us/1900us` 分别控制停止、低速、中速、高速。
+
+## 17. 最终检查表
+
+交付前逐项打勾：
+
+```text
+[ ] serial_warm_home .HMI 可以正常打开
+[ ] 工程波特率为 9600
+[ ] 页面编号为 page0-page3
+[ ] page0 背景或布局已完成
+[ ] page1 背景或布局已完成
+[ ] page2 背景或布局已完成
+[ ] page3 背景或布局已完成
+[ ] page0 数据控件名完全正确
+[ ] page1 数据控件名完全正确
+[ ] page1 的 `c_air` 曲线控件存在，数字 ID 为 12，通道为 0
+[ ] page3 状态控件名完全正确
+[ ] page0 四个图标事件已配置
+[ ] page1-page3 返回首页事件已配置
+[ ] 左右滑动或透明翻页热区已配置
+[ ] page2 设备触摸热区事件已配置
+[ ] page3 手动环境热区事件已配置
+[ ] HMI 工程已保存
+[ ] HMI 工程已编译
+[ ] HMI 工程已下载到屏幕
+[ ] ESP32 monitor 能看到 [TJC] 控件刷新日志
+[ ] ESP32 monitor 能看到 Screen event 日志
+```
+
+## 18. 常见问题排查
+
+| 现象 | 优先检查 |
+| --- | --- |
+| 点击触摸热区没有任何日志 | 事件里是否写了 `prints`；是否漏了 `printh 0a`；屏幕 TX 是否接 ESP32 GPIO42 |
+| monitor 有 `[TJC]` 但没有 `Screen event` | ESP32 到屏幕 TX 正常，但屏幕到 ESP32 RX 可能未接好 |
+| 页面不切换 | 页面编号是否为 `page0` 到 `page3`；事件字符串是否正确 |
+| 点击图标变成翻页 | 左右透明热区覆盖了图标，缩小热区 |
+| 返回首页无效 | `hs_back` 事件是否是 `BTN,PAGE,HOME` |
+| 只显示背景不显示数值 | 文本控件可能被背景挡住，调整层级或透明属性 |
+| 空气曲线不显示 | `c_air` 数字 ID 是否为 12；是否停留在 page1；monitor 是否出现 `[TJC] cle 12,0` 和 `[TJC] add 12,0,...` |
+| 手动环境按钮无效果 | 是否使用 `BTN,ENV,...`；是否漏了 `printh 0a`；monitor 是否出现 `Screen event: raw=BTN,ENV,...` |
+| 中文乱码 | 先用英文控件验收通信，再检查 HMI 字体和编码 |
+| 设备触摸热区无实际动作 | 当前固件已接 GPIO13/GPIO14 LED 和 GPIO21 连续旋转舵机风扇；若日志正常但外设不动，检查接线、供电、共地、LED 极性和舵机 5V 电源 |
+| 事件偶尔连在一起 | 每条事件后必须有 `printh 0a` |
+
+## 19. 交付给队友的文件
+
+交付时至少提供：
+
+```text
+D:/QQ/serial_warm_home  (1).HMI
+D:/Project/VSCode-project/xiaozhi-esp32/文档/manual_hmi_event_setup.md
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/serial_hmi_widgets.json
+D:/Project/VSCode-project/xiaozhi-esp32/文档/serial_screen_design.md
+D:/Project/VSCode-project/xiaozhi-esp32/文档/project_handoff_to_teammates.md
+E:/espwork/xiaozhi-esp32/xiaozhi-esp32/docs/phase-handoff-2026-06-09-serial-screen-score-page.md
+```
+
+如果 USART HMI 编辑器会生成屏幕可直接下载的编译产物，也一起交付。
+
+## 20. 如何让 Codex 帮你完成设计元素导入
+
+当前我已经能完成的部分：
+
+1. 生成或优化 `ui_assets/` 中的页面背景图、图标和过渡示意图。
+2. 根据传感器实际能力调整页面信息结构。
+3. 给出每个 HMI 控件的名称、类型、坐标、尺寸、事件脚本和固件写入示例。
+4. 修改 ESP32 固件，让固件写入新的控件名。
+5. 更新交付文档和队友接续文档。
+6. 用 `scripts/hmi_background_probe.ps1` 在 HMI 副本中做图片资源级探测和背景替换验证。
+
+当前不能安全直接做的部分：
+
+1. 不能用文本方式直接修改原始 `.HMI` 二进制工程文件。
+2. 不能安全地直接在二进制里新增控件、重命名控件或写入触摸事件。
+3. 不能在不知道编辑器内部对象数字 ID 的情况下安全写入曲线控件。
+4. 不能只凭截图判断所有控件的最终图层顺序和触摸热区是否真的生效，必须经过编辑器保存、编译、下载和实机 monitor 验证。
+
+### 20.1 后台脚本副本验证方式，不推荐当前使用
+
+脚本副本方式已经降级为探测记录，不是当前正式操作流程。除非后续专门做 `.HMI` 二进制逆向验证，否则不要继续用它修改页面。以下内容只保留给后续排查脚本时参考。
+
+如果只想复现实验，可以使用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File E:/espwork/xiaozhi-esp32/xiaozhi-esp32/scripts/hmi_background_probe.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File E:/espwork/xiaozhi-esp32/xiaozhi-esp32/scripts/hmi_background_probe.ps1 -PatchCopy
+```
+
+脚本输入和输出：
+
+| 项目 | 路径 |
+| --- | --- |
+| 原始 HMI | `D:/QQ/serial_warm_home .HMI` |
+| 轻量背景 | `E:/espwork/xiaozhi-esp32/xiaozhi-esp32/main/boards/bread-compact-wifi/ui_assets/page1_air_detail_hmi_blank_light.png` |
+| 测试副本 | `E:/espwork/xiaozhi-esp32/xiaozhi-esp32/tmp_hmi_probe_page1_bg_replace.HMI` |
+
+使用规则：
+
+1. 脚本只允许作用于副本，不要把测试副本直接覆盖原始 HMI。
+2. 当前正式操作不要打开 `tmp_hmi_probe_page1_bg_replace.HMI` 继续编辑。
+3. 页面交付应回到手动导入背景图流程。
+4. 文本控件、进度条、触摸热区和事件仍按本文档手动创建。
+
+如果你要手动导入，按本文档第 6 节做即可：
+
+1. 打开 `D:/QQ/serial_warm_home .HMI`。
+2. 进入 `page1`。
+3. 导入 `page1_air_detail_hmi_blank.png` 到最底层。
+4. 创建 `t_air_score`、`j_air_detail`、`t_air_state`、`t_air_raw`、`t_temp_d`、`t_humi_d`、`t_comfort`。
+5. 创建 `hs_back`，在右侧 `事件 -> 弹起事件(0)` 填返回首页脚本。
+6. 保存、编译、下载到屏幕。
+7. 烧录 ESP32 固件并打开 monitor，确认 page1 日志里出现新控件命令。
+
+如果你希望我尽量代你操作编辑器，需要满足以下条件：
+
+1. 你先打开 `E:/USART_HMI/USART HMI.exe`。
+2. 在编辑器中打开 `D:/QQ/serial_warm_home .HMI`。
+3. 让窗口保持在桌面最前面，不要最小化。
+4. 如果 Codex 当前环境有可用的桌面 GUI 自动化工具，我可以按截图和坐标辅助点击、导入图片、填写控件属性。
+5. 如果当前环境没有 GUI 自动化工具，我仍然可以继续生成更精确的坐标清单、检查截图、修正资源图和文档，但最终点击和保存仍需要你手动完成。
+
+更稳定的协作方式是：你手动在编辑器中导入并保存，然后把截图或导出的编译产物路径发给我。我会根据截图检查控件位置、遮挡、命名长度、事件填写位置和固件日志是否匹配。
+
