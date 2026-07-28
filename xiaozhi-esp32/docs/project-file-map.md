@@ -9,9 +9,9 @@
 | ESP-IDF 工程根目录 | `E:/espwork/xiaozhi-esp32/xiaozhi-esp32` |
 | 当前板型目录 | `main/boards/bread-compact-wifi` |
 | 队友代码来源 | `E:/espwork/xiaozhi-esp32/work1/bread-compact-wifi` |
-| 当前 HMI 工程文件 | `D:/QQ/serial_warm_home .HMI` |
+| 当前 HMI 工程文件 | `hmi/serial_warm_home.HMI` |
 
-`.HMI` 文件不在 Git 工程目录内，交付给队友时必须单独提供。
+`.HMI` 屏幕工程已经纳入 Git。修改页面、控件或事件后，应同步提交 `hmi/` 中的工程文件、`serial_hmi_widgets.json` 和相关说明文档。
 
 ## 当前有效源码
 

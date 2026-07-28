@@ -48,4 +48,4 @@ clean.bat
 /xiaozhi-esp32/docs/report_output_rebuild/tmp/
 
 # Vendor tool runtime logs
-/资料/HLK-2450_TOOL/Log/
+**/HLK-2450_TOOL/Log/

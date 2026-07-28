@@ -11,7 +11,7 @@
 | 当前目标芯片 | `esp32s3` |
 | 当前分区表 | `partitions/v2/16m.csv` |
 | 队友代码来源 | `E:/espwork/xiaozhi-esp32/work1/bread-compact-wifi` |
-| 当前 HMI 工程文件 | `D:/QQ/serial_warm_home  (1).HMI`，旧记录为 `D:/QQ/serial_warm_home .HMI` |
+| 当前 HMI 工程文件 | `hmi/serial_warm_home.HMI`；page1 背景测试版为 `hmi/serial_warm_home_page1_background_test.HMI` |
 
 `sdkconfig` 属于受保护配置文件，本阶段未修改。
 

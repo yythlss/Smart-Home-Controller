@@ -1,7 +1,0 @@
-1. DHT11（3脚：VCC/GND/DATA）
-VCC → 3.3V，GND → GND，DATA数据脚 → ESP32-S3 GPIO4；模块自带板载上拉电阻，无需外接
-2. MQ135空气质量传感器（4引脚：VCC、GND、AO、DO）
-VCC接5V，GND共地；AO模拟输出 → ESP32-S3 GPIO1（ADC引脚），DO数字引脚悬空不使用
-3. 电容串口屏：硬件UART2，波特率9600
-屏幕TX → ESP32-S3 GPIO17（UART2_RX）
-屏幕RX → ESP32-S3 GPIO18（UART2_TX），屏幕电源3.3V、GND共地
