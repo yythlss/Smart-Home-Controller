@@ -1,0 +1,117 @@
+<view class="admin-header">
+  <view class="admin-title">操作后台</view>
+  <view class="admin-subtitle">设备接入、数据源切换、自动化和运行记录</view>
+</view>
+
+<view wx:if="{{message}}" class="admin-message">{{message}}</view>
+
+<view class="admin-panel">
+  <view class="panel-title">设备连接</view>
+  <view class="panel-caption">主页面不显示连接参数，统一在后台维护</view>
+  <view class="field-label">ESP32 局域网地址</view>
+  <input class="text-input" value="{{host}}" bindinput="onHostInput" placeholder="例如 192.168.1.23:8080" />
+  <view class="field-label">API Token（可选）</view>
+  <input class="text-input" password value="{{apiToken}}" bindinput="onTokenInput" placeholder="固件未启用鉴权时留空" />
+  <button class="primary-button" bindtap="saveConnection" loading="{{loading}}">保存并测试连接</button>
+  <view class="setting-row">
+    <view>
+      <view class="setting-title">离线演示系统</view>
+      <view class="setting-caption">启用后不向真实 ESP32 发送请求</view>
+    </view>
+    <switch color="#7c3aed" checked="{{demoMode}}" bindchange="toggleDemoMode" />
+  </view>
+</view>
+
+<view class="admin-panel" wx:if="{{state}}">
+  <view class="panel-title">传感器数据系统</view>
+  <view class="panel-caption">两套系统互斥，主看板始终显示当前生效的数据</view>
+  <view class="system-grid">
+    <view class="system-card {{sourceSystem === 'sensor' ? 'active sensor' : ''}}" bindtap="switchToSensorSystem">
+      <view class="system-name">真实传感器系统</view>
+      <view class="system-description">读取 DHT11、MQ135 等硬件采集值</view>
+      <view class="system-state">{{sourceSystem === 'sensor' ? '当前生效' : '点击切换'}}</view>
+    </view>
+    <view class="system-card {{sourceSystem === 'manual' ? 'active manual' : ''}}" bindtap="switchToManualSystem">
+      <view class="system-name">手动传感器系统</view>
+      <view class="system-description">人工设置数值，用于演示与规则测试</view>
+      <view class="system-state">{{sourceSystem === 'manual' ? '当前生效' : '点击切换'}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{sourceSystem === 'manual'}}" class="manual-system">
+    <view class="subsection-title">手动传感器数值</view>
+    <view class="manual-grid">
+      <view><view class="field-label">温度 °C</view><input class="number-input" type="digit" data-field="temperature_c" value="{{manualForm.temperature_c}}" bindinput="onManualInput" /></view>
+      <view><view class="field-label">湿度 %</view><input class="number-input" type="digit" data-field="humidity_percent" value="{{manualForm.humidity_percent}}" bindinput="onManualInput" /></view>
+      <view><view class="field-label">空气评分</view><input class="number-input" type="number" data-field="air_score" value="{{manualForm.air_score}}" bindinput="onManualInput" /></view>
+    </view>
+    <button class="primary-button" bindtap="applyManualEnvironment" loading="{{loading}}">应用手动数值</button>
+    <view class="preset-grid">
+      <button wx:for="{{presets}}" wx:key="key" class="preset-button" data-preset="{{item.key}}" bindtap="setEnvironmentPreset">{{item.name}}</button>
+    </view>
+  </view>
+</view>
+
+<view class="admin-panel" wx:if="{{state}}">
+  <view class="setting-row no-border">
+    <view>
+      <view class="panel-title">自动化规则</view>
+      <view class="panel-caption">只在自动模式下参与设备联动</view>
+    </view>
+    <switch color="#16a34a" checked="{{ruleForm.enabled}}" bindchange="onRuleToggle" />
+  </view>
+  <view class="rule-grid">
+    <view><view class="field-label">空气评分低于</view><input class="number-input" type="number" data-field="air_score_below" value="{{ruleForm.air_score_below}}" bindinput="onRuleInput" /></view>
+    <view><view class="field-label">湿度低于 %</view><input class="number-input" type="number" data-field="humidity_below" value="{{ruleForm.humidity_below}}" bindinput="onRuleInput" /></view>
+    <view><view class="field-label">温度高于 °C</view><input class="number-input" type="digit" data-field="temperature_above" value="{{ruleForm.temperature_above}}" bindinput="onRuleInput" /></view>
+  </view>
+  <view class="rule-grid second-row">
+    <view><view class="field-label">净化器档位</view><input class="number-input" type="number" data-field="purifier_level" value="{{ruleForm.purifier_level}}" bindinput="onRuleInput" /></view>
+    <view><view class="field-label">新风档位</view><input class="number-input" type="number" data-field="fresh_air_level" value="{{ruleForm.fresh_air_level}}" bindinput="onRuleInput" /></view>
+    <view><view class="field-label">加湿器档位</view><input class="number-input" type="number" data-field="humidifier_level" value="{{ruleForm.humidifier_level}}" bindinput="onRuleInput" /></view>
+  </view>
+  <button class="primary-button green" bindtap="saveAutomationRule" loading="{{loading}}">保存自动化规则</button>
+</view>
+
+<block wx:if="{{state}}">
+  <view class="admin-panel" wx:if="{{state.alarm_active}}">
+    <view class="alarm-box">
+      <view>
+        <view class="alarm-title">当前告警</view>
+        <view class="alarm-reason">{{state.alarm_reason}}</view>
+      </view>
+      <button class="alarm-button" bindtap="acknowledgeAlarm">确认告警</button>
+    </view>
+  </view>
+</block>
+
+<view class="admin-panel" wx:if="{{events.length > 0}}">
+  <view class="panel-title">告警与操作日志</view>
+  <view class="panel-caption">最近 {{events.length}} 条，仅用于诊断和演示追溯</view>
+  <view wx:for="{{events}}" wx:key="key" class="event-row">
+    <view class="event-type type-{{item.type}}">{{item.typeText}}</view>
+    <view class="event-content">
+      <view class="event-message">{{item.message}}</view>
+      <view class="event-meta">{{item.ageText}} · {{item.source}}</view>
+    </view>
+  </view>
+</view>
+
+<view class="admin-panel" wx:if="{{health}}">
+  <view class="panel-title">设备诊断</view>
+  <view class="panel-caption">面向调试人员的固件和传感器运行状态</view>
+  <view class="diagnostic-list">
+    <view class="diagnostic-row"><text>固件版本</text><text>{{health.firmware_version}}</text></view>
+    <view class="diagnostic-row"><text>运行时间</text><text>{{health.uptimeText}}</text></view>
+    <view class="diagnostic-row"><text>可用内存</text><text>{{health.free_heap_bytes}} B</text></view>
+    <view class="diagnostic-row"><text>Wi-Fi 信号</text><text>{{health.wifiText}}</text></view>
+    <view class="diagnostic-row"><text>DHT11</text><text>{{health.dhtText}}</text></view>
+    <view class="diagnostic-row"><text>MQ135</text><text>{{health.mq135Text}}</text></view>
+    <view class="diagnostic-row"><text>光敏</text><text>{{health.lightText}}</text></view>
+    <view class="diagnostic-row"><text>雷达</text><text>{{health.radarText}}</text></view>
+    <view class="diagnostic-row"><text>接口鉴权</text><text>{{health.api_auth_enabled ? '已启用' : '未启用'}}</text></view>
+  </view>
+  <button class="secondary-button" bindtap="refreshAll" loading="{{loading}}">刷新后台数据</button>
+</view>
+
+<view class="admin-footer">返回上一页即可回到家庭主看板</view>

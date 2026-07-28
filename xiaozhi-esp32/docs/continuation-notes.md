@@ -23,11 +23,12 @@
 15. `docs/phase-handoff-2026-07-19-ambient-light-polarity-and-radar-cable.md`
 16. `docs/phase-handoff-2026-07-28-software-reliability.md`
 17. `docs/phase-handoff-2026-07-28-mini-program-demo-enhancements.md`
-18. `../文档/串口屏与环境监测项目交付说明.md`
-19. 如果涉及小程序，再读：
+18. `docs/phase-handoff-2026-07-28-mini-program-admin-split.md`
+19. `../文档/串口屏与环境监测项目交付说明.md`
+20. 如果涉及小程序，再读：
     - 仓库根目录 `mini_program_demo/README.md`
     - `../文档/智能家居外设接线与验证步骤.md` 的第 12、13 节
-20. 如果涉及串口屏，再读：
+21. 如果涉及串口屏，再读：
    - `../文档/串口屏手动事件配置手册.md`
    - `main/boards/bread-compact-wifi/serial_hmi_widgets.json`
    - `../文档/串口屏设计说明.md`

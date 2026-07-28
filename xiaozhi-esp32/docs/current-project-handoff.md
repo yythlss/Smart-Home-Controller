@@ -1,6 +1,6 @@
 # xiaozhi-esp32 当前工程交付说明
 
-> 2026-07-28 已完成两轮“只增加代码、不更换硬件”增强。稳定性内容见 [`phase-handoff-2026-07-28-software-reliability.md`](phase-handoff-2026-07-28-software-reliability.md)，小程序演示增强见 [`phase-handoff-2026-07-28-mini-program-demo-enhancements.md`](phase-handoff-2026-07-28-mini-program-demo-enhancements.md)。本节更新优先于文档中较早的 HMI 外部路径和“雷达/光敏尚未接入”描述；当前 HMI 工程已保存在仓库 `hmi/`。
+> 2026-07-28 已完成多轮“只增加代码、不更换硬件”增强。稳定性内容见 [`phase-handoff-2026-07-28-software-reliability.md`](phase-handoff-2026-07-28-software-reliability.md)，小程序演示增强见 [`phase-handoff-2026-07-28-mini-program-demo-enhancements.md`](phase-handoff-2026-07-28-mini-program-demo-enhancements.md)，主看板与后台拆分见 [`phase-handoff-2026-07-28-mini-program-admin-split.md`](phase-handoff-2026-07-28-mini-program-admin-split.md)。本节更新优先于文档中较早的 HMI 外部路径和“雷达/光敏尚未接入”描述；当前 HMI 工程已保存在仓库 `hmi/`。
 
 本文档记录截至 `2026-07-19` 的当前工程状态，供交付和接续开发使用。
 
@@ -38,6 +38,7 @@
 - 2026-07-18 已接入 GL5528 类光敏模块的 ADC 驱动，以及 HLK-LD2450 的 UART1 收包和标准目标帧解析；雷达实物线束和收包验证仍待完成。
 - 2026-07-19 已根据实物确认光敏模块的 AO 为“遮光数值升高、照亮数值降低”，默认校准已改为 `DARK_RAW=3300`、`BRIGHT_RAW=300`，需重新烧录后验证。
 - 2026-07-28 小程序新增离线演示、雷达二维位置图、三指标趋势曲线、自定义自动化规则、五种一键场景和最近 32 条事件日志；新增 `/api/events`、`/api/automation`、`/api/scene`。
+- 2026-07-28 小程序进一步拆分为家居主看板和操作后台；主页面底部灰色小字进入后台，真实/手动传感器系统、连接、规则、日志和诊断均移至后台。
 - 蜂鸣器和独立 LED 灯的真实输出仍未接入，原因是供电、驱动电路和 GPIO 尚未最终确认；`light_on` 目前仅是可验证的逻辑状态。
 
 ## 当前固件能力

@@ -1,0 +1,287 @@
+page {
+  padding-bottom: 40rpx;
+  background: #f3f4f6;
+}
+
+.admin-header {
+  padding: 32rpx 28rpx 18rpx;
+}
+
+.admin-title {
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.admin-subtitle,
+.panel-caption,
+.setting-caption {
+  margin-top: 6rpx;
+  color: #7b8495;
+  font-size: 21rpx;
+  line-height: 1.6;
+}
+
+.admin-message {
+  margin: 0 24rpx 18rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 10rpx;
+  color: #475569;
+  background: #ffffff;
+  font-size: 22rpx;
+  text-align: center;
+}
+
+.admin-panel {
+  margin: 18rpx 24rpx;
+  padding: 24rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 14rpx;
+  background: #ffffff;
+}
+
+.panel-title,
+.subsection-title {
+  font-size: 29rpx;
+  font-weight: 700;
+}
+
+.subsection-title {
+  margin-bottom: 16rpx;
+  font-size: 26rpx;
+}
+
+.field-label {
+  margin-top: 18rpx;
+  color: #667085;
+  font-size: 21rpx;
+}
+
+.text-input,
+.number-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 72rpx;
+  margin-top: 8rpx;
+  padding: 0 16rpx;
+  border: 1rpx solid #d0d5dd;
+  border-radius: 10rpx;
+  background: #ffffff;
+  font-size: 25rpx;
+}
+
+button {
+  margin: 0;
+  border-radius: 10rpx;
+  font-size: 24rpx;
+}
+
+button::after {
+  border: none;
+}
+
+.primary-button,
+.secondary-button {
+  margin-top: 20rpx;
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.primary-button.green {
+  background: #16a34a;
+}
+
+.secondary-button {
+  color: #344054;
+  background: #e5e7eb;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #eef2f6;
+}
+
+.setting-row.no-border {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.setting-title {
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.system-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
+  margin-top: 22rpx;
+}
+
+.system-card {
+  padding: 22rpx 18rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 14rpx;
+  background: #f8fafc;
+}
+
+.system-card.active.sensor {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.system-card.active.manual {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+}
+
+.system-name {
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.system-description {
+  min-height: 68rpx;
+  margin-top: 8rpx;
+  color: #7b8495;
+  font-size: 20rpx;
+  line-height: 1.6;
+}
+
+.system-state {
+  margin-top: 12rpx;
+  color: #64748b;
+  font-size: 20rpx;
+  font-weight: 600;
+}
+
+.system-card.active .system-state {
+  color: #166534;
+}
+
+.manual-system {
+  margin-top: 24rpx;
+  padding-top: 22rpx;
+  border-top: 1rpx solid #eef2f6;
+}
+
+.manual-grid,
+.rule-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+}
+
+.rule-grid {
+  margin-top: 18rpx;
+}
+
+.rule-grid.second-row {
+  margin-top: 4rpx;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.preset-button {
+  height: 62rpx;
+  line-height: 62rpx;
+  padding: 0;
+  color: #075985;
+  background: #e0f2fe;
+  font-size: 22rpx;
+}
+
+.alarm-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  color: #b91c1c;
+}
+
+.alarm-title {
+  font-size: 27rpx;
+  font-weight: 700;
+}
+
+.alarm-reason {
+  margin-top: 5rpx;
+  font-size: 21rpx;
+}
+
+.alarm-button {
+  flex: 0 0 auto;
+  color: #ffffff;
+  background: #dc2626;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 74rpx 1fr;
+  gap: 14rpx;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #f1f5f9;
+}
+
+.event-row:last-child {
+  border-bottom: none;
+}
+
+.event-type {
+  align-self: start;
+  padding: 6rpx 4rpx;
+  border-radius: 7rpx;
+  color: #475569;
+  background: #e2e8f0;
+  font-size: 19rpx;
+  text-align: center;
+}
+
+.type-alarm { color: #b91c1c; background: #fee2e2; }
+.type-automation { color: #166534; background: #dcfce7; }
+.type-scene { color: #6d28d9; background: #ede9fe; }
+.type-device { color: #075985; background: #e0f2fe; }
+
+.event-message {
+  color: #334155;
+  font-size: 23rpx;
+}
+
+.event-meta {
+  margin-top: 5rpx;
+  color: #94a3b8;
+  font-size: 19rpx;
+}
+
+.diagnostic-list {
+  margin-top: 18rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 10rpx;
+  background: #f8fafc;
+}
+
+.diagnostic-row {
+  display: grid;
+  grid-template-columns: 150rpx 1fr;
+  gap: 12rpx;
+  padding: 8rpx 0;
+  color: #475569;
+  font-size: 22rpx;
+}
+
+.admin-footer {
+  margin: 34rpx 0 12rpx;
+  color: #9ca3af;
+  font-size: 19rpx;
+  text-align: center;
+}

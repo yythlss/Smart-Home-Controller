@@ -336,6 +336,11 @@ pages/index/index.js
 pages/index/index.json
 pages/index/index.wxml
 pages/index/index.wxss
+pages/admin/admin.js
+pages/admin/admin.json
+pages/admin/admin.wxml
+pages/admin/admin.wxss
+utils/smart_home_service.js
 ```
 
 6. 打开右上角“详情”或“本地设置”。
@@ -833,3 +838,46 @@ powershell -ExecutionPolicy Bypass -File xiaozhi-esp32\scripts\test_esp32_http_a
 7. 关闭离线演示，连接真实 ESP32，展示同一页面无缝切换到真实数据。
 
 离线演示模式只影响小程序本地数据，不会向 ESP32 发送控制请求；关闭开关后立即恢复真实局域网 API。
+
+## 13. 家居主看板与操作后台
+
+小程序现已拆分为两个相互配合的页面：
+
+### 13.1 家居主看板
+
+启动后默认进入 `pages/index/index`。主页面只保留真实家庭日常会使用的内容：
+
+- 设备在线状态、温度、湿度、空气评分、舒适度和建议。
+- 回家、离家、睡眠、通风、强力净化场景。
+- 自动/节能模式、照明、净化器、新风和加湿器控制。
+- 雷达空间感知和最近 30 个采样点的环境趋势。
+- 当前告警确认。
+
+连接地址、Token、手动环境输入、离线演示、自动化阈值、事件日志和设备诊断不再显示在主页面。
+
+主页面滑到最底部，会看到一行灰色小字：
+
+```text
+设备配置、调试与操作后台
+```
+
+点击后进入 `pages/admin/admin`。
+
+### 13.2 操作后台
+
+后台集中提供：
+
+- ESP32 地址和可选 API Token 配置。
+- 离线演示系统开关。
+- “真实传感器系统”和“手动传感器系统”切换。
+- 手动温度、湿度、空气评分及舒适/高温/干燥/污染预设。
+- 自动化阈值和设备动作档位配置。
+- 最近 32 条告警与操作日志。
+- 固件、内存、Wi-Fi、DHT11、MQ135、光敏和雷达诊断。
+
+两套传感器系统互斥：
+
+- 真实传感器系统调用 `/api/environment` 并发送 `{"enabled":false}`，恢复硬件采集。
+- 手动传感器系统调用同一接口并发送 `{"enabled":true,...}`，由人工数值替代传感器值。
+
+主看板和后台通过 `utils/smart_home_service.js` 使用同一份连接配置和离线模拟状态。后台切换数据系统后，返回主页面会自动刷新并显示当前生效的数据来源。

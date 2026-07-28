@@ -54,6 +54,7 @@
 | `docs/continuation-notes.md` | 接续开发注意事项 |
 | 仓库根目录 `mini_program_demo/README.md` | 小程序局域网演示工程的详细导入、HTTP API 预验证、模拟器/真机验收和故障排查手册 |
 | `docs/phase-handoff-2026-07-28-mini-program-demo-enhancements.md` | 离线演示、雷达图、趋势曲线、自动化、场景和事件日志阶段交付 |
+| `docs/phase-handoff-2026-07-28-mini-program-admin-split.md` | 小程序家居主看板、操作后台和真实/手动传感器双系统拆分交付 |
 | `docs/project-file-map.md` | 本文件，说明有效文件和冗余文件边界 |
 | `docs/phase-handoff-2026-06-09-work1-integration.md` | 本次队友代码整合阶段交付文档 |
 | `docs/phase-handoff-2026-06-09-serial-screen-score-page.md` | 串口屏 page1 空气评分页阶段交付文档 |

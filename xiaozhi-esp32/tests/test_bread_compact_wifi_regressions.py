@@ -292,21 +292,21 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("GET,POST,OPTIONS", source)
 
     def test_mini_program_exposes_manual_environment_input(self):
-        mini_dir = ROOT.parent / "mini_program_demo" / "pages" / "index"
-        js = (mini_dir / "index.js").read_text(encoding="utf-8")
-        wxml = (mini_dir / "index.wxml").read_text(encoding="utf-8")
-        wxss = (mini_dir / "index.wxss").read_text(encoding="utf-8")
+        mini_dir = ROOT.parent / "mini_program_demo" / "pages" / "admin"
+        js = (mini_dir / "admin.js").read_text(encoding="utf-8")
+        wxml = (mini_dir / "admin.wxml").read_text(encoding="utf-8")
+        wxss = (mini_dir / "admin.wxss").read_text(encoding="utf-8")
 
         self.assertIn("manualForm", js)
-        self.assertIn("setManualEnvironment", js)
-        self.assertIn("disableManualEnvironment", js)
+        self.assertIn("applyManualEnvironment", js)
+        self.assertIn("switchToSensorSystem", js)
         self.assertIn('"/api/environment"', js)
-        self.assertIn("舒适度", wxml)
-        self.assertIn("环境建议", wxml)
-        self.assertIn("手动输入数据", wxml)
+        self.assertIn("真实传感器系统", wxml)
+        self.assertIn("手动传感器系统", wxml)
+        self.assertIn("手动传感器数值", wxml)
         self.assertIn("bindinput=\"onManualInput\"", wxml)
-        self.assertIn("bindtap=\"setManualEnvironment\"", wxml)
-        self.assertIn("bindtap=\"disableManualEnvironment\"", wxml)
+        self.assertIn("bindtap=\"applyManualEnvironment\"", wxml)
+        self.assertIn("bindtap=\"switchToSensorSystem\"", wxml)
         self.assertIn(".manual-grid", wxss)
 
     def test_smart_home_local_http_api_is_registered_for_mini_program(self):
@@ -432,10 +432,17 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
         source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
         http = (BOARD_DIR / "smart_home_http_server.cc").read_text(encoding="utf-8")
-        mini_dir = ROOT.parent / "mini_program_demo" / "pages" / "index"
-        js = (mini_dir / "index.js").read_text(encoding="utf-8")
-        wxml = (mini_dir / "index.wxml").read_text(encoding="utf-8")
-        wxss = (mini_dir / "index.wxss").read_text(encoding="utf-8")
+        mini_root = ROOT.parent / "mini_program_demo"
+        main_dir = mini_root / "pages" / "index"
+        admin_dir = mini_root / "pages" / "admin"
+        main_js = (main_dir / "index.js").read_text(encoding="utf-8")
+        main_wxml = (main_dir / "index.wxml").read_text(encoding="utf-8")
+        main_wxss = (main_dir / "index.wxss").read_text(encoding="utf-8")
+        admin_js = (admin_dir / "admin.js").read_text(encoding="utf-8")
+        admin_wxml = (admin_dir / "admin.wxml").read_text(encoding="utf-8")
+        admin_wxss = (admin_dir / "admin.wxss").read_text(encoding="utf-8")
+        service = (mini_root / "utils" / "smart_home_service.js").read_text(encoding="utf-8")
+        app_json = (mini_root / "app.json").read_text(encoding="utf-8")
 
         for symbol in [
             "AutomationRuleConfig", "SmartHomeEvent", "SetAutomationRule",
@@ -444,18 +451,24 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
             self.assertIn(symbol, header + source)
         for endpoint in ['"/api/events"', '"/api/automation"', '"/api/scene"']:
             self.assertIn(endpoint, http)
-        for symbol in [
-            "toggleDemoMode", "drawTrendChart", "setScene", "saveAutomationRule",
-            "initializeDemoData", '"/api/events"',
-        ]:
-            self.assertIn(symbol, js)
-        for binding in [
-            'bindchange="toggleDemoMode"', 'bindtap="setScene"',
-            'bindtap="saveAutomationRule"', 'id="trendCanvas"',
-        ]:
-            self.assertIn(binding, wxml)
-        for style in [".radar-map", ".trend-canvas", ".scene-grid", ".event-row"]:
-            self.assertIn(style, wxss)
+        for symbol in ["drawTrendChart", "setScene", "openAdmin"]:
+            self.assertIn(symbol, main_js)
+        for symbol in ["toggleDemoMode", "saveAutomationRule", '"/api/events"']:
+            self.assertIn(symbol, admin_js)
+        self.assertIn("initializeDemoData", service)
+        self.assertIn('"pages/admin/admin"', app_json)
+        self.assertIn('bindtap="openAdmin"', main_wxml)
+        self.assertIn('bindtap="setScene"', main_wxml)
+        self.assertIn('id="trendCanvas"', main_wxml)
+        self.assertIn('bindchange="toggleDemoMode"', admin_wxml)
+        self.assertIn('bindtap="saveAutomationRule"', admin_wxml)
+        self.assertIn("设备配置、调试与操作后台", main_wxml)
+        self.assertNotIn("告警与操作日志", main_wxml)
+        self.assertNotIn("手动传感器数值", main_wxml)
+        for style in [".radar-map", ".trend-canvas", ".scene-grid", ".main-footer"]:
+            self.assertIn(style, main_wxss)
+        for style in [".system-grid", ".manual-grid", ".event-row", ".diagnostic-list"]:
+            self.assertIn(style, admin_wxss)
 
     def test_ld2450_initialization_does_not_stop_target_reporting(self):
         source = (BOARD_DIR / "ld2450_sensor.cc").read_text(encoding="utf-8")
