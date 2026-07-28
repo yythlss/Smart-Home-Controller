@@ -1,8 +1,51 @@
-.claude
-/handin
-build/
+# Local editor and assistant metadata
+.claude/
+.agents/
 CLAUDE.md
-clean.bat
+
+# Local handoff packages and archives
+/handin/
 *.zip
 *.rar
 *.7z
+
+# Local helper copies
+clean.bat
+
+# ESP-IDF generated files and dependency caches
+**/build/
+**/build_*/
+**/managed_components/
+**/sdkconfig
+**/sdkconfig.old
+**/.cache/
+**/.ccache/
+**/releases/
+
+# Python environments and caches
+**/.venv/
+**/.venv_*/
+**/__pycache__/
+*.py[cod]
+
+# Local development notes and temporary HMI artifacts
+/xiaozhi-esp32/task_plan.md
+/xiaozhi-esp32/progress.md
+/xiaozhi-esp32/findings.md
+/xiaozhi-esp32/tmp/
+/xiaozhi-esp32/tmp_*/
+/xiaozhi-esp32/tmp*.HMI
+/xiaozhi-esp32/scripts/build_codex_check.ps1
+
+# Machine-specific WeChat Developer Tools settings
+**/project.private.config.json
+
+# Duplicate demo copy and generated report previews
+/xiaozhi-esp32/docs/mini_program_demo/
+/xiaozhi-esp32/docs/report_output/final/pdf_preview*/
+/xiaozhi-esp32/docs/report_output/final/*_qa.pdf
+/xiaozhi-esp32/docs/report_output/generate_report_tmp.py
+/xiaozhi-esp32/docs/report_output_rebuild/tmp/
+
+# Vendor tool runtime logs
+/资料/HLK-2450_TOOL/Log/

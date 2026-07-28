@@ -1,0 +1,39 @@
+* text=auto
+
+# Source and documentation use LF in the repository
+*.c text eol=lf
+*.cc text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.wxml text eol=lf
+*.wxss text eol=lf
+
+# Windows helper scripts keep native line endings
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.bin binary
+*.dll binary
+*.doc binary
+*.docx binary
+*.exe binary
+*.gif binary
+*.HMI binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.png binary
+*.pptx binary
+*.p3 binary
+*.wav binary

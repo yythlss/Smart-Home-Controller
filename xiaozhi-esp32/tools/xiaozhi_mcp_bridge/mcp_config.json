@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "xiaozhi-smart-home": {
+      "command": "python",
+      "args": [
+        "tools/xiaozhi_mcp_bridge/smart_home_bridge.py"
+      ],
+      "env": {
+        "ESP32_BASE_URL": "http://192.168.1.23:8080"
+      }
+    }
+  }
+}

@@ -1,0 +1,304 @@
+{
+  "project": "bread-compact-wifi-tjc",
+  "screen": {
+    "vendor": "TJC",
+    "size_inches": 4.3,
+    "target_resolution": "480x272",
+    "orientation": "landscape",
+    "style": "mobile_warm_home",
+    "uart": {
+      "port": "UART2",
+      "tx_gpio": 41,
+      "rx_gpio": 42,
+      "baud_rate": 9600,
+      "format": "8N1",
+      "terminator_hex": "FF FF FF"
+    }
+  },
+  "assets": [
+    {
+      "file": "ui_assets/page0_home_launcher_hmi_blank.png",
+      "purpose": "page0 手机式首页背景"
+    },
+    {
+      "file": "ui_assets/page1_air_detail_hmi_blank.png",
+      "purpose": "page1 空气详情页背景"
+    },
+    {
+      "file": "ui_assets/page2_smart_home_hmi_blank.png",
+      "purpose": "page2 智能家居控制页背景"
+    },
+    {
+      "file": "ui_assets/page3_ai_settings_hmi_manual_env.png",
+      "purpose": "page3 AI 与设置页背景，底部包含手动环境模拟按钮"
+    },
+    {
+      "file": "ui_assets/icon_air.png",
+      "purpose": "空气详情入口图标"
+    },
+    {
+      "file": "ui_assets/icon_home.png",
+      "purpose": "智能家居入口图标"
+    },
+    {
+      "file": "ui_assets/icon_ai.png",
+      "purpose": "AI 页面入口图标"
+    },
+    {
+      "file": "ui_assets/icon_settings.png",
+      "purpose": "设置入口图标"
+    }
+  ],
+  "events": {
+    "manual_setup_doc": "../../../../文档/串口屏手动事件配置手册.md",
+    "case_sensitive": false,
+    "page_select": "BTN,PAGE,<HOME|AIR_DETAIL|SMART_HOME|AI|SETTINGS|NEXT|PREV>",
+    "swipe_left": "SWIPE,LEFT",
+    "swipe_right": "SWIPE,RIGHT",
+    "device_action": "BTN,DEVICE,<target>,<action>",
+    "mode_action": "BTN,MODE,<target>,<action>",
+    "environment_action": "BTN,ENV,<MANUAL|SCENE>,<TOGGLE|GOOD|HOT|DRY|POLLUTED>"
+  },
+  "pages": [
+    {
+      "id": 0,
+      "name": "home",
+      "title": "手机式首页",
+      "background": "ui_assets/page0_home_launcher_hmi_blank.png",
+      "widgets": [
+        {
+          "name": "t_temp",
+          "type": "text",
+          "label": "温度",
+          "firmware_example": "t_temp.txt=\"26.3 C\""
+        },
+        {
+          "name": "t_humi",
+          "type": "text",
+          "label": "湿度",
+          "firmware_example": "t_humi.txt=\"58.0 %\""
+        },
+        {
+          "name": "t_air_state",
+          "type": "text",
+          "label": "空气状态",
+          "firmware_example": "t_air_state.txt=\"良\""
+        },
+        {
+          "name": "t_air",
+          "type": "text",
+          "label": "空气状态兼容字段",
+          "firmware_example": "t_air.txt=\"良(820)\""
+        },
+        {
+          "name": "j_air",
+          "type": "progress",
+          "label": "空气评分",
+          "firmware_example": "j_air.val=75"
+        },
+        {
+          "name": "t_advice",
+          "type": "text",
+          "label": "建议",
+          "firmware_example": "t_advice.txt=\"Keep ventilation\""
+        },
+        {
+          "name": "t_ai_state",
+          "type": "text",
+          "label": "AI 状态",
+          "firmware_example": "t_ai_state.txt=\"IDLE\""
+        },
+        {
+          "name": "hs_air",
+          "type": "touch_hotspot",
+          "label": "空气详情图标",
+          "event": "BTN,PAGE,AIR_DETAIL"
+        },
+        {
+          "name": "hs_home",
+          "type": "touch_hotspot",
+          "label": "智能家居图标",
+          "event": "BTN,PAGE,SMART_HOME"
+        },
+        {
+          "name": "hs_ai",
+          "type": "touch_hotspot",
+          "label": "AI 图标",
+          "event": "BTN,PAGE,AI"
+        },
+        {
+          "name": "hs_settings",
+          "type": "touch_hotspot",
+          "label": "设置图标",
+          "event": "BTN,PAGE,SETTINGS"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "air_detail",
+      "title": "空气详情",
+      "background": "ui_assets/page1_air_detail_hmi_blank.png",
+      "widgets": [
+        {
+          "name": "t_air_score",
+          "type": "text",
+          "label": "空气评分文本",
+          "firmware_example": "t_air_score.txt=\"75/100\""
+        },
+        {
+          "name": "j_air_detail",
+          "type": "progress",
+          "label": "空气评分进度条",
+          "firmware_example": "j_air_detail.val=75"
+        },
+        {
+          "name": "t_air_state",
+          "type": "text",
+          "label": "空气等级",
+          "firmware_example": "t_air_state.txt=\"良\""
+        },
+        {
+          "name": "t_air_raw",
+          "type": "text",
+          "label": "MQ135 原始值",
+          "firmware_example": "t_air_raw.txt=\"820\""
+        },
+        {
+          "name": "t_temp_d",
+          "type": "text",
+          "label": "详情页温度",
+          "firmware_example": "t_temp_d.txt=\"26.0 C\""
+        },
+        {
+          "name": "t_humi_d",
+          "type": "text",
+          "label": "详情页湿度",
+          "firmware_example": "t_humi_d.txt=\"58.0 %\""
+        },
+        {
+          "name": "t_comfort",
+          "type": "text",
+          "label": "舒适度",
+          "firmware_example": "t_comfort.txt=\"待计算\""
+        },
+        {
+          "name": "hs_back",
+          "type": "touch_hotspot",
+          "label": "返回首页",
+          "event": "BTN,PAGE,HOME"
+        }
+      ],
+      "optional_widgets": [
+        {
+          "name": "c_air",
+          "type": "curve",
+          "label": "空气评分趋势曲线",
+          "numeric_id": 12,
+          "channel": 0,
+          "note": "当前 HMI 文件 D:/QQ/serial_warm_home  (1).HMI 中已确认 c_air 数字 id 为 12；固件使用 add 12,0,val 写入空气评分曲线。"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "smart_home",
+      "title": "智能家居控制",
+      "background": "ui_assets/page2_smart_home_hmi_blank.png",
+      "widgets": [
+        {
+          "name": "hs_purifier",
+          "type": "touch_hotspot",
+          "label": "空气净化器",
+          "event": "BTN,DEVICE,AIR_PURIFIER,TOGGLE"
+        },
+        {
+          "name": "hs_fan",
+          "type": "touch_hotspot",
+          "label": "新风/风扇",
+          "event": "BTN,DEVICE,FAN,TOGGLE"
+        },
+        {
+          "name": "hs_humid",
+          "type": "touch_hotspot",
+          "label": "加湿器",
+          "event": "BTN,DEVICE,HUMIDIFIER,TOGGLE"
+        },
+        {
+          "name": "hs_auto",
+          "type": "touch_hotspot",
+          "label": "自动模式",
+          "event": "BTN,MODE,AUTO,TOGGLE"
+        },
+        {
+          "name": "hs_eco",
+          "type": "touch_hotspot",
+          "label": "节能模式",
+          "event": "BTN,MODE,ECO,TOGGLE"
+        },
+        {
+          "name": "hs_back",
+          "type": "touch_hotspot",
+          "label": "返回首页",
+          "event": "BTN,PAGE,HOME"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "ai_settings",
+      "title": "AI 与设置",
+      "background": "ui_assets/page3_ai_settings_hmi_manual_env.png",
+      "widgets": [
+        {
+          "name": "t_ai_state",
+          "type": "text",
+          "label": "AI 状态",
+          "firmware_example": "t_ai_state.txt=\"IDLE\""
+        },
+        {
+          "name": "t_link_state",
+          "type": "text",
+          "label": "连接状态",
+          "firmware_example": "t_link_state.txt=\"UART2 9600\""
+        },
+        {
+          "name": "hs_env_m",
+          "type": "touch_hotspot",
+          "label": "手动环境开关",
+          "event": "BTN,ENV,MANUAL,TOGGLE"
+        },
+        {
+          "name": "hs_env_good",
+          "type": "touch_hotspot",
+          "label": "舒适环境预设",
+          "event": "BTN,ENV,SCENE,GOOD"
+        },
+        {
+          "name": "hs_env_hot",
+          "type": "touch_hotspot",
+          "label": "高温环境预设",
+          "event": "BTN,ENV,SCENE,HOT"
+        },
+        {
+          "name": "hs_env_dry",
+          "type": "touch_hotspot",
+          "label": "干燥环境预设",
+          "event": "BTN,ENV,SCENE,DRY"
+        },
+        {
+          "name": "hs_env_bad",
+          "type": "touch_hotspot",
+          "label": "污染环境预设",
+          "event": "BTN,ENV,SCENE,POLLUTED"
+        },
+        {
+          "name": "hs_back",
+          "type": "touch_hotspot",
+          "label": "返回首页",
+          "event": "BTN,PAGE,HOME"
+        }
+      ]
+    }
+  ]
+}
