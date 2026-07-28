@@ -46,13 +46,14 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `AGENTS.md` | 工作区级 Codex 工程规则，已明确“开发前先阅读工程”和“每阶段完成后写交付文档” |
+| `AGENTS.md` | 可选工作区规则文件；当前仓库未包含，后续若新增则开发前阅读 |
 | `task_plan.md` | 本阶段任务拆解和状态 |
 | `findings.md` | 本阶段工程发现、整合判断和风险记录 |
 | `progress.md` | 本阶段执行进度记录 |
 | `docs/current-project-handoff.md` | 当前工程状态交付说明 |
 | `docs/continuation-notes.md` | 接续开发注意事项 |
-| `docs/mini_program_demo/README.md` | 小程序局域网演示工程的详细导入、HTTP API 预验证、模拟器/真机验收和故障排查手册 |
+| 仓库根目录 `mini_program_demo/README.md` | 小程序局域网演示工程的详细导入、HTTP API 预验证、模拟器/真机验收和故障排查手册 |
+| `docs/phase-handoff-2026-07-28-mini-program-demo-enhancements.md` | 离线演示、雷达图、趋势曲线、自动化、场景和事件日志阶段交付 |
 | `docs/project-file-map.md` | 本文件，说明有效文件和冗余文件边界 |
 | `docs/phase-handoff-2026-06-09-work1-integration.md` | 本次队友代码整合阶段交付文档 |
 | `docs/phase-handoff-2026-06-09-serial-screen-score-page.md` | 串口屏 page1 空气评分页阶段交付文档 |
@@ -67,6 +68,7 @@
 | `docs/phase-handoff-2026-07-06-air-curve-comfort-manual-env-ai.md` | 空气曲线、舒适度/建议、手动环境、小程序和 AI/MCP 工具增强交付文档 |
 | `docs/phase-handoff-2026-07-07-xiaozhi-mcp-bridge.md` | 小智远端 MCP 桥接服务交付文档 |
 | `docs/phase-handoff-2026-07-14-smart-sensing-ai-automation.md` | 雷达/光敏/灯光/报警接口、节能重做、天气新闻和唤醒方案的当前交付文档 |
+| `docs/phase-handoff-2026-07-28-software-reliability.md` | 并发安全、健康诊断、手动覆盖、雷达区域、可选鉴权、小程序和 MCP 纯软件增强交付文档 |
 | `../文档/串口屏与环境监测项目交付说明.md` | 板型目录内的队友交付说明 |
 
 ## 已清理的冗余内容
@@ -102,7 +104,7 @@
 
 ## 接续阅读顺序
 
-1. `AGENTS.md`
+1. 若仓库存在 `AGENTS.md`，先阅读；当前版本未包含该文件
 2. `docs/current-project-handoff.md`
 3. `docs/project-file-map.md`
 4. `docs/continuation-notes.md`
@@ -113,13 +115,14 @@
 9. `docs/phase-handoff-2026-07-06-air-curve-comfort-manual-env-ai.md`
 10. `docs/phase-handoff-2026-07-07-xiaozhi-mcp-bridge.md`
 11. `docs/phase-handoff-2026-07-14-smart-sensing-ai-automation.md`
-12. `../文档/串口屏与环境监测项目交付说明.md`
-13. `../文档/串口屏手动事件配置手册.md`
-14. `../文档/智能家居外设接线与验证步骤.md`
-15. `docs/mini_program_demo/README.md`
-16. `main/boards/bread-compact-wifi/serial_hmi_widgets.json`
-17. `main/boards/bread-compact-wifi/compact_wifi_board.cc`
-18. `main/boards/bread-compact-wifi/serial_hmi.cc`
+12. `docs/phase-handoff-2026-07-28-software-reliability.md`
+13. `../文档/串口屏与环境监测项目交付说明.md`
+14. `../文档/串口屏手动事件配置手册.md`
+15. `../文档/智能家居外设接线与验证步骤.md`
+16. 仓库根目录 `mini_program_demo/README.md`
+17. `main/boards/bread-compact-wifi/serial_hmi_widgets.json`
+18. `main/boards/bread-compact-wifi/compact_wifi_board.cc`
+19. `main/boards/bread-compact-wifi/serial_hmi.cc`
 
 ## 整理原则
 

@@ -17,6 +17,7 @@
 #include "assets/lang_config.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <cstdio>
@@ -104,9 +105,11 @@ private:
     void InitializeSerialHmi() {
         display_ = new NoDisplay();
         if (!serial_hmi_.Initialize()) {
+            smart_home_.UpdateHmiHealth(false);
             ESP_LOGW(TAG, "Serial HMI init failed; XiaoZhi and sensor task will continue");
             return;
         }
+        smart_home_.UpdateHmiHealth(true);
         serial_hmi_.ShowBootScreen();
     }
 
@@ -134,6 +137,7 @@ private:
         ESP_LOGI(TAG, "Sensor task running, interval=%d ms", SENSOR_READ_INTERVAL_MS);
 
         bool has_last_dht_reading = false;
+        TickType_t last_dht_success_ticks = 0;
         float last_temperature_c = 0.0f;
         float last_humidity_percent = 0.0f;
 
@@ -146,9 +150,13 @@ private:
                 last_temperature_c = dht11_.GetTemperature();
                 last_humidity_percent = dht11_.GetHumidity();
                 has_last_dht_reading = true;
+                last_dht_success_ticks = xTaskGetTickCount();
             }
 
-            const bool display_dht_ok = dht_ok || has_last_dht_reading;
+            const TickType_t now_ticks = xTaskGetTickCount();
+            const bool dht_cache_fresh = has_last_dht_reading &&
+                now_ticks - last_dht_success_ticks <= pdMS_TO_TICKS(DHT11_CACHE_MAX_AGE_MS);
+            const bool display_dht_ok = dht_ok || dht_cache_fresh;
             float temp = display_dht_ok ? last_temperature_c : -99.0f;
             float humi = display_dht_ok ? last_humidity_percent : -1.0f;
             if (!dht_ok && has_last_dht_reading) {
@@ -175,8 +183,11 @@ private:
             }
             printf("  Light  : %s  raw=%d  brightness=%.1f%%\n",
                    light_ok ? "OK" : "FAIL", light_raw, light_percent);
+            smart_home_.UpdateSensorHealth(dht_ok, mq_ok, light_ok);
 
             EnvironmentSample environment = {};
+            environment.sample_time_ms = static_cast<uint64_t>(esp_timer_get_time() / 1000);
+            environment.cached_temperature_humidity = !dht_ok && display_dht_ok;
             environment.has_temperature = display_dht_ok;
             environment.temperature_c = temp;
             environment.has_humidity = display_dht_ok;
@@ -199,13 +210,36 @@ private:
         TickType_t last_raw_log_ticks = 0;
 
         while (true) {
+            bool received_frame = false;
             for (int frame_index = 0; frame_index < 4; ++frame_index) {
                 Ld2450Snapshot snapshot = {};
                 if (!ld2450_.Poll(snapshot, pdMS_TO_TICKS(LD2450_POLL_INTERVAL_MS))) {
                     break;
                 }
 
-                smart_home_.UpdateRadarObservation(snapshot.active_target_count);
+                received_frame = true;
+                bool has_nearest = false;
+                int nearest_x = 0;
+                int nearest_y = 0;
+                int nearest_speed = 0;
+                int64_t nearest_distance_squared = 0;
+                for (const auto& target : snapshot.targets) {
+                    if (!target.active) {
+                        continue;
+                    }
+                    const int64_t distance_squared =
+                        static_cast<int64_t>(target.x_mm) * target.x_mm +
+                        static_cast<int64_t>(target.y_mm) * target.y_mm;
+                    if (!has_nearest || distance_squared < nearest_distance_squared) {
+                        has_nearest = true;
+                        nearest_distance_squared = distance_squared;
+                        nearest_x = target.x_mm;
+                        nearest_y = target.y_mm;
+                        nearest_speed = target.speed_mm_per_s;
+                    }
+                }
+                smart_home_.UpdateRadarObservation(snapshot.active_target_count, has_nearest,
+                                                    nearest_x, nearest_y, nearest_speed);
                 const TickType_t now = xTaskGetTickCount();
                 if (now - last_detail_log_ticks < pdMS_TO_TICKS(1000)) {
                     continue;
@@ -223,6 +257,10 @@ private:
                              target.speed_mm_per_s, target.resolution_mm);
                 }
             }
+
+            smart_home_.UpdateRadarHealth(ld2450_.GetReceivedByteCount(),
+                                          ld2450_.GetValidFrameCount(),
+                                          ld2450_.GetRejectedFrameCount(), received_frame);
 
             const TickType_t now = xTaskGetTickCount();
             if (now - last_stats_log_ticks >= pdMS_TO_TICKS(5000)) {
@@ -405,23 +443,29 @@ public:
         });
         smart_home_.Initialize();
 
-        xTaskCreate(
+        if (xTaskCreate(
             [](void* arg) {
                 static_cast<CompactWifiBoard*>(arg)->SensorTask();
             },
-            "sensor_task", 4096, this, 5, nullptr);
+            "sensor_task", 4096, this, 5, nullptr) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create sensor_task");
+        }
 
-        xTaskCreate(
+        if (xTaskCreate(
             [](void* arg) {
                 static_cast<CompactWifiBoard*>(arg)->ScreenEventTask();
             },
-            "screen_event_task", 4096, this, 5, nullptr);
+            "screen_event_task", 4096, this, 5, nullptr) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create screen_event_task");
+        }
 
-        xTaskCreate(
+        if (xTaskCreate(
             [](void* arg) {
                 static_cast<CompactWifiBoard*>(arg)->RadarTask();
             },
-            "ld2450_task", 4096, this, 5, nullptr);
+            "ld2450_task", 4096, this, 5, nullptr) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create ld2450_task");
+        }
     }
 
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) override {
@@ -431,8 +475,12 @@ public:
                     callback(event, data);
                 }
                 if (event == NetworkEvent::Connected) {
+                    smart_home_.UpdateNetworkHealth(true);
                     ESP_LOGI(TAG, "Network connected, starting mini program HTTP API");
                     smart_home_http_.Start();
+                } else if (event == NetworkEvent::Disconnected) {
+                    smart_home_.UpdateNetworkHealth(false);
+                    smart_home_http_.Stop();
                 }
             });
     }

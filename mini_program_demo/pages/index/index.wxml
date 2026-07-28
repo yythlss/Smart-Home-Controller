@@ -1,68 +1,172 @@
-<view class="panel">
-  <view class="title">空气管家</view>
-  <view class="muted">ESP32 局域网地址</view>
-  <view class="host-row">
-    <input class="host-input" value="{{host}}" bindinput="onHostInput" placeholder="例如 192.168.1.23:8080" />
-    <button class="primary" bindtap="saveHost" loading="{{loading}}">连接</button>
+<view class="panel connect-panel">
+  <view class="title-row">
+    <view>
+      <view class="title">空气管家</view>
+      <view class="muted">ESP32 智能环境演示台</view>
+    </view>
+    <view class="demo-switch">
+      <text>离线演示</text>
+      <switch color="#7c3aed" checked="{{demoMode}}" bindchange="toggleDemoMode" />
+    </view>
+  </view>
+  <view wx:if="{{demoMode}}" class="demo-banner">当前使用本地模拟数据，无需连接 ESP32</view>
+  <view wx:else>
+    <view class="muted host-label">ESP32 局域网地址</view>
+    <view class="host-row">
+      <input class="host-input" value="{{host}}" bindinput="onHostInput" placeholder="例如 192.168.1.23:8080" />
+      <button class="primary" bindtap="saveHost" loading="{{loading}}">连接</button>
+    </view>
+    <input class="token-input" password value="{{apiToken}}" bindinput="onTokenInput" placeholder="可选 API Token；固件未启用鉴权时留空" />
   </view>
   <view class="message">{{message}}</view>
 </view>
 
+<view wx:if="{{state.alarm_active}}" class="alarm-banner">
+  <view>
+    <view class="alarm-title">环境告警</view>
+    <view class="alarm-reason">{{state.alarm_reason}}</view>
+  </view>
+  <button class="alarm-button" bindtap="acknowledgeAlarm">确认</button>
+</view>
+
 <view class="panel" wx:if="{{state}}">
-  <view class="section-title">环境状态</view>
+  <view class="section-title-row">
+    <view class="section-title">环境状态</view>
+    <view class="status-chip">{{demoMode ? '演示数据' : (state.manual_environment_mode ? '手动数据' : '实时数据')}}</view>
+  </view>
   <view class="metrics">
-    <view class="metric">
+    <view class="metric temperature">
       <view class="metric-value">{{state.has_temperature ? state.temperature_c : '--'}}</view>
-      <view class="metric-label">温度 C</view>
+      <view class="metric-label">温度 °C</view>
     </view>
-    <view class="metric">
+    <view class="metric humidity">
       <view class="metric-value">{{state.has_humidity ? state.humidity_percent : '--'}}</view>
       <view class="metric-label">湿度 %</view>
     </view>
-    <view class="metric">
+    <view class="metric air">
       <view class="metric-value">{{state.air_score}}</view>
       <view class="metric-label">空气评分</view>
     </view>
   </view>
   <view class="info-list">
-    <view class="info-row">
-      <text class="info-label">空气等级</text>
-      <text>{{state.air_state || '--'}}</text>
+    <view class="info-row"><text class="info-label">空气等级</text><text>{{state.air_state || '--'}}</text></view>
+    <view class="info-row"><text class="info-label">舒适度</text><text>{{state.comfort || '--'}}</text></view>
+    <view class="info-row"><text class="info-label">环境建议</text><text>{{state.advice || '--'}}</text></view>
+    <view class="info-row"><text class="info-label">数据来源</text><text>{{state.manual_environment_mode ? '手动模拟' : (state.cached_temperature_humidity ? '传感器缓存' : (demoMode ? '离线模拟' : '真实传感器'))}}</text></view>
+    <view class="info-row"><text class="info-label">当前场景</text><text>{{state.activeSceneText}}</text></view>
+  </view>
+  <button class="secondary" bindtap="refreshAll" loading="{{loading}}">刷新全部数据</button>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title-row">
+    <view class="section-title">雷达目标位置</view>
+    <view class="muted">{{state.radar_target_count || 0}} 个目标</view>
+  </view>
+  <view class="radar-map">
+    <view class="radar-zone zone-left">左</view>
+    <view class="radar-zone zone-center">中</view>
+    <view class="radar-zone zone-right">右</view>
+    <view class="radar-axis vertical"></view>
+    <view class="radar-axis horizontal"></view>
+    <view class="radar-device">设备</view>
+    <view wx:if="{{radar.visible}}" class="radar-target" style="left: {{radar.left}}%; top: {{radar.top}}%;"></view>
+  </view>
+  <view class="radar-label">{{radar.label}} · 速度 {{state.radar_nearest_speed_mm_per_s || 0}} mm/s</view>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title-row">
+    <view class="section-title">一键场景</view>
+    <view class="muted">快速演示联动</view>
+  </view>
+  <view class="scene-grid">
+    <button wx:for="{{scenes}}" wx:key="key"
+      class="{{state.active_scene === item.value ? 'scene active' : 'scene'}}"
+      data-scene="{{item.key}}" bindtap="setScene">{{item.name}}</button>
+  </view>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title-row">
+    <view class="section-title">自定义自动化</view>
+    <switch color="#16a34a" checked="{{ruleForm.enabled}}" bindchange="onRuleToggle" />
+  </view>
+  <view class="rule-status {{state.automation_rule.active ? 'active' : ''}}">
+    {{state.automation_rule.active ? '规则正在执行' : (ruleForm.enabled ? '规则已启用，等待触发' : '规则已停用')}}
+  </view>
+  <view class="rule-grid">
+    <view class="rule-field">
+      <view class="muted">空气评分低于</view>
+      <input class="manual-input" type="number" data-field="air_score_below" value="{{ruleForm.air_score_below}}" bindinput="onRuleInput" />
     </view>
-    <view class="info-row">
-      <text class="info-label">舒适度</text>
-      <text>{{state.comfort || '--'}}</text>
+    <view class="rule-field">
+      <view class="muted">湿度低于 %</view>
+      <input class="manual-input" type="number" data-field="humidity_below" value="{{ruleForm.humidity_below}}" bindinput="onRuleInput" />
     </view>
-    <view class="info-row">
-      <text class="info-label">环境建议</text>
-      <text>{{state.advice || '--'}}</text>
-    </view>
-    <view class="info-row">
-      <text class="info-label">数据来源</text>
-      <text>{{state.manual_environment_mode ? '手动模拟' : '真实传感器'}}</text>
+    <view class="rule-field">
+      <view class="muted">温度高于 °C</view>
+      <input class="manual-input" type="digit" data-field="temperature_above" value="{{ruleForm.temperature_above}}" bindinput="onRuleInput" />
     </view>
   </view>
-  <button class="secondary" bindtap="refreshAll" loading="{{loading}}">刷新数据</button>
+  <view class="rule-grid action-levels">
+    <view class="rule-field">
+      <view class="muted">净化器档位</view>
+      <input class="manual-input" type="number" data-field="purifier_level" value="{{ruleForm.purifier_level}}" bindinput="onRuleInput" />
+    </view>
+    <view class="rule-field">
+      <view class="muted">新风档位</view>
+      <input class="manual-input" type="number" data-field="fresh_air_level" value="{{ruleForm.fresh_air_level}}" bindinput="onRuleInput" />
+    </view>
+    <view class="rule-field">
+      <view class="muted">加湿器档位</view>
+      <input class="manual-input" type="number" data-field="humidifier_level" value="{{ruleForm.humidifier_level}}" bindinput="onRuleInput" />
+    </view>
+  </view>
+  <view class="rule-tip">规则在自动模式下生效：污染时启动净化和新风，干燥时启动加湿，高温时启动新风。</view>
+  <button class="primary wide" bindtap="saveAutomationRule" loading="{{loading}}">保存自动化规则</button>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title">环境趋势</view>
+  <view class="chart-legend">
+    <view><text class="legend-dot air-dot"></text>空气评分</view>
+    <view><text class="legend-dot temp-dot"></text>温度</view>
+    <view><text class="legend-dot humidity-dot"></text>湿度</view>
+  </view>
+  <canvas type="2d" id="trendCanvas" class="trend-canvas"></canvas>
+  <view wx:if="{{samples.length === 0}}" class="muted empty-chart">暂无历史数据</view>
+</view>
+
+<view class="panel" wx:if="{{state}}">
+  <view class="section-title">模式与设备</view>
+  <view class="mode-row">
+    <button class="{{state.auto_mode ? 'mode active' : 'mode'}}" data-mode="auto" bindtap="setMode">自动</button>
+    <button class="{{state.eco_mode ? 'mode active' : 'mode'}}" data-mode="eco" bindtap="setMode">节能</button>
+  </view>
+  <view class="device-list">
+    <block wx:for="{{devices}}" wx:key="key">
+      <view class="device-row">
+        <view class="device-name">{{item.name}}<text wx:if="{{item.override > 0}}" class="override-mark">手动</text></view>
+        <view class="level-buttons">
+          <button wx:for="{{levels}}" wx:for-item="level" wx:key="*this"
+            class="{{item.level === level ? 'level active' : 'level'}}"
+            data-device="{{item.key}}" data-level="{{level}}" bindtap="setDevice">{{level}}</button>
+        </view>
+      </view>
+    </block>
+  </view>
 </view>
 
 <view class="panel" wx:if="{{state}}">
   <view class="section-title">手动输入数据</view>
   <view class="manual-grid">
-    <view class="manual-field">
-      <view class="muted">温度 C</view>
-      <input class="manual-input" type="digit" data-field="temperature_c" value="{{manualForm.temperature_c}}" bindinput="onManualInput" />
-    </view>
-    <view class="manual-field">
-      <view class="muted">湿度 %</view>
-      <input class="manual-input" type="digit" data-field="humidity_percent" value="{{manualForm.humidity_percent}}" bindinput="onManualInput" />
-    </view>
-    <view class="manual-field">
-      <view class="muted">空气评分</view>
-      <input class="manual-input" type="number" data-field="air_score" value="{{manualForm.air_score}}" bindinput="onManualInput" />
-    </view>
+    <view class="manual-field"><view class="muted">温度 °C</view><input class="manual-input" type="digit" data-field="temperature_c" value="{{manualForm.temperature_c}}" bindinput="onManualInput" /></view>
+    <view class="manual-field"><view class="muted">湿度 %</view><input class="manual-input" type="digit" data-field="humidity_percent" value="{{manualForm.humidity_percent}}" bindinput="onManualInput" /></view>
+    <view class="manual-field"><view class="muted">空气评分</view><input class="manual-input" type="number" data-field="air_score" value="{{manualForm.air_score}}" bindinput="onManualInput" /></view>
   </view>
   <view class="action-row">
-    <button class="primary" bindtap="setManualEnvironment" loading="{{loading}}">应用手动数据</button>
+    <button class="primary" bindtap="setManualEnvironment" loading="{{loading}}">应用数据</button>
     <button class="secondary inline" bindtap="disableManualEnvironment" loading="{{loading}}">恢复传感器</button>
   </view>
   <view class="preset-row">
@@ -70,36 +174,31 @@
   </view>
 </view>
 
-<view class="panel" wx:if="{{state}}">
-  <view class="section-title">模式</view>
-  <view class="mode-row">
-    <button class="{{state.auto_mode ? 'mode active' : 'mode'}}" data-mode="auto" bindtap="setMode">自动</button>
-    <button class="{{state.eco_mode ? 'mode active' : 'mode'}}" data-mode="eco" bindtap="setMode">节能</button>
+<view class="panel" wx:if="{{events.length > 0}}">
+  <view class="section-title-row">
+    <view class="section-title">告警与操作日志</view>
+    <view class="muted">最近 {{events.length}} 条</view>
+  </view>
+  <view wx:for="{{events}}" wx:key="key" class="event-row">
+    <view class="event-type type-{{item.type}}">{{item.typeText}}</view>
+    <view class="event-content">
+      <view class="event-message">{{item.message}}</view>
+      <view class="event-meta">{{item.ageText}} · {{item.source}}</view>
+    </view>
   </view>
 </view>
 
-<view class="panel" wx:if="{{state}}">
-  <view class="section-title">设备控制</view>
-  <block wx:for="{{devices}}" wx:key="key">
-    <view class="device-row">
-      <view class="device-name">{{item.name}}</view>
-      <view class="level-buttons">
-        <button wx:for="{{levels}}" wx:for-item="level" wx:key="*this"
-          class="{{item.level === level ? 'level active' : 'level'}}"
-          data-device="{{item.key}}" data-level="{{level}}" bindtap="setDevice">{{level}}</button>
-      </view>
-    </view>
-  </block>
-</view>
-
-<view class="panel">
-  <view class="section-title">近期空气质量</view>
-  <view wx:if="{{samples.length === 0}}" class="muted">暂无历史数据</view>
-  <view wx:for="{{samples}}" wx:key="index" class="sample-row">
-    <view class="sample-index">{{item.index}}</view>
-    <view class="bar-track">
-      <view class="bar-fill" style="width: {{item.airWidth}}%;"></view>
-    </view>
-    <view class="sample-score">{{item.air_score}}</view>
+<view class="panel" wx:if="{{health}}">
+  <view class="section-title">设备诊断</view>
+  <view class="info-list">
+    <view class="info-row"><text class="info-label">固件版本</text><text>{{health.firmware_version}}</text></view>
+    <view class="info-row"><text class="info-label">运行时间</text><text>{{health.uptimeText}}</text></view>
+    <view class="info-row"><text class="info-label">可用内存</text><text>{{health.free_heap_bytes}} B</text></view>
+    <view class="info-row"><text class="info-label">Wi-Fi 信号</text><text>{{health.wifiText}}</text></view>
+    <view class="info-row"><text class="info-label">DHT11</text><text>{{health.dhtText}}</text></view>
+    <view class="info-row"><text class="info-label">MQ135</text><text>{{health.mq135Text}}</text></view>
+    <view class="info-row"><text class="info-label">光敏</text><text>{{health.lightText}}</text></view>
+    <view class="info-row"><text class="info-label">雷达</text><text>{{health.radarText}}</text></view>
+    <view class="info-row"><text class="info-label">接口鉴权</text><text>{{health.api_auth_enabled ? '已启用' : '未启用'}}</text></view>
   </view>
 </view>

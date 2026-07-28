@@ -86,4 +86,12 @@
 // 传感器采集间隔（毫秒）
 #define SENSOR_READ_INTERVAL_MS 5000
 
+// Cached DHT11 values are only considered valid for this duration.
+#define DHT11_CACHE_MAX_AGE_MS 30000
+
+// Optional local HTTP API protection. Leave empty for backwards-compatible
+// trusted-LAN demonstrations; set a non-empty value before untrusted use.
+#define SMART_HOME_API_TOKEN ""
+#define SMART_HOME_CORS_ORIGIN "*"
+
 #endif // _BOARD_CONFIG_H_

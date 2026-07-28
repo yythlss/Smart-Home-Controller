@@ -1,0 +1,37 @@
+name: Quality checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: xiaozhi-esp32
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate JSON contracts
+        run: |
+          python -m json.tool main/boards/bread-compact-wifi/serial_hmi_widgets.json > /dev/null
+          python -m json.tool tools/xiaozhi_mcp_bridge/mcp_config.json > /dev/null
+
+      - name: Validate mini program JavaScript
+        run: node --check ../mini_program_demo/pages/index/index.js

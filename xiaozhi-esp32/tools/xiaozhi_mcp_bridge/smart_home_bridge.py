@@ -59,6 +59,9 @@ def _request_json(path: str, method: str = "GET", payload: dict[str, Any] | None
     url = f"{_base_url()}{path}"
     body = None
     headers = {"Accept": "application/json"}
+    api_token = os.environ.get("ESP32_API_TOKEN", "").strip()
+    if api_token:
+        headers["X-API-Key"] = api_token
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -145,6 +148,13 @@ def home_get_state() -> dict[str, Any]:
     """获取当前空气状态和智能家居设备状态。"""
 
     return _request_json("/api/state")
+
+
+@mcp.tool()
+def home_get_health() -> dict[str, Any]:
+    """获取固件版本、运行时间、内存、Wi-Fi 和传感器健康状态。"""
+
+    return _request_json("/api/health")
 
 
 @mcp.tool()

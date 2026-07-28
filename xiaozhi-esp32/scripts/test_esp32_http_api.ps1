@@ -1,5 +1,6 @@
 param(
     [string]$Esp32BaseUrl = $env:ESP32_BASE_URL,
+    [string]$ApiToken = $env:ESP32_API_TOKEN,
     [switch]$ControlTest,
     [switch]$EnvironmentTest,
     [int]$TimeoutSec = 5
@@ -29,12 +30,16 @@ function Invoke-Esp32Api {
     )
 
     $uri = "$BaseUrl$Path"
+    $headers = @{}
+    if (-not [string]::IsNullOrWhiteSpace($ApiToken)) {
+        $headers["X-API-Key"] = $ApiToken.Trim()
+    }
     if ($null -eq $Body) {
-        return Invoke-RestMethod -Method $Method -Uri $uri -TimeoutSec $TimeoutSec
+        return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -TimeoutSec $TimeoutSec
     }
 
     $json = $Body | ConvertTo-Json -Compress
-    return Invoke-RestMethod -Method $Method -Uri $uri -Body $json -ContentType "application/json" -TimeoutSec $TimeoutSec
+    return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -Body $json -ContentType "application/json" -TimeoutSec $TimeoutSec
 }
 
 function Show-StateSummary {
@@ -64,6 +69,12 @@ Show-StateSummary $initialState
 
 $history = Invoke-Esp32Api -Method "GET" -Path "/api/history"
 Write-Host ("[OK] GET /api/history count={0}" -f $history.count)
+
+$health = Invoke-Esp32Api -Method "GET" -Path "/api/health"
+Write-Host ("[OK] GET /api/health version={0} heap={1} rssi={2}" -f $health.firmware_version, $health.free_heap_bytes, $health.wifi_rssi_dbm)
+
+$events = Invoke-Esp32Api -Method "GET" -Path "/api/events"
+Write-Host ("[OK] GET /api/events count={0}" -f $events.count)
 
 if ($ControlTest) {
     Write-Host "Running optional control test. This will briefly change actuator state."

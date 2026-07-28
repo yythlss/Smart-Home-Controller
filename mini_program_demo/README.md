@@ -5,7 +5,7 @@
 工程目录：
 
 ```text
-E:/espwork/xiaozhi-esp32/xiaozhi-esp32/docs/mini_program_demo
+<仓库根目录>/mini_program_demo
 ```
 
 固件端依赖：
@@ -316,7 +316,7 @@ Invoke-RestMethod -Method Post -Uri "http://<ESP32_IP>:8080/api/environment" -Co
 2. 项目目录选择：
 
 ```text
-E:/espwork/xiaozhi-esp32/xiaozhi-esp32/docs/mini_program_demo
+<仓库根目录>/mini_program_demo
 ```
 
 3. AppID 选择测试号、游客模式或你自己的测试 AppID。
@@ -326,11 +326,14 @@ E:/espwork/xiaozhi-esp32/xiaozhi-esp32/docs/mini_program_demo
 空气管家局域网演示
 ```
 
+仓库内的 `project.config.json` 默认使用 `touristappid`，可直接以游客模式编译运行；准备真机预览或上传时，再在微信开发者工具中换成你自己的 AppID。
+
 5. 导入后确认左侧文件包含：
 
 ```text
 app.json
 pages/index/index.js
+pages/index/index.json
 pages/index/index.wxml
 pages/index/index.wxss
 ```
@@ -751,7 +754,82 @@ Network：看请求 URL、状态码和失败原因
 ## 10. 当前能力边界
 
 - 当前是局域网演示方案，没有公网服务器。
-- 当前 HTTP API 没有鉴权，只适合可信 WiFi 内演示。
+- 固件默认未启用 HTTP Token，以兼容可信 WiFi 内的现有演示；可在 `config.h` 设置 `SMART_HOME_API_TOKEN` 后启用。
 - 当前小程序直接请求 `http://<ESP32_IP>:8080`，不适合直接发布上线。
 - 空气质量传感器当前只有 MQ135 原始值和演示级空气评分，没有 PM2.5、CO2、TVOC 具体浓度。
 - 历史数据最多保留 30 条，约等于最近 2.5 分钟采样窗口。
+
+## 11. 诊断、自动刷新与可选鉴权
+
+新版小程序会同时读取：
+
+```text
+GET /api/state
+GET /api/history
+GET /api/health
+GET /api/events
+```
+
+页面每 10 秒自动刷新一次，并展示固件版本、运行时间、空闲内存、Wi-Fi RSSI、DHT11/MQ135/光敏数据新鲜度、雷达有效帧数和 API 鉴权状态。历史条目使用固件启动后的 `sample_time_ms` 显示相对时间。
+
+如果固件的 `SMART_HOME_API_TOKEN` 非空，在首页的“可选 API Token”输入框填写同一字符串并点击“连接”。小程序会把 Token 保存到本机存储，并通过 `X-API-Key` 请求头发送。不要在截图、公开仓库或演示视频中暴露真实 Token。
+
+PowerShell 验证示例：
+
+```powershell
+$headers = @{ "X-API-Key" = "你的本地Token" }
+Invoke-RestMethod -Headers $headers -Uri "http://<ESP32_IP>:8080/api/health"
+
+powershell -ExecutionPolicy Bypass -File xiaozhi-esp32\scripts\test_esp32_http_api.ps1 `
+  -Esp32BaseUrl "http://<ESP32_IP>:8080" `
+  -ApiToken "你的本地Token"
+```
+
+手动控制设备后，页面会显示“手动”标记；该设备默认在 30 分钟内不被自动模式覆盖。重新开启自动模式或节能模式，会立即交回规则控制。
+
+## 12. 演示增强功能
+
+当前小程序新增以下纯软件功能，不需要增加或更换硬件：
+
+- 雷达二维目标位置图：把 LD2450 最近目标的 X/Y 坐标映射到左、中、右区域。
+- 环境趋势曲线：同时绘制最近 30 条空气评分、温度和湿度数据。
+- 自定义自动化：可配置空气评分、湿度、温度阈值，以及净化器、新风、加湿器动作档位。
+- 一键场景：回家、离家、睡眠、通风和强力净化。
+- 告警与操作日志：显示最近 32 条系统、雷达、设备、场景、告警和规则事件。
+- 离线演示模式：无需 ESP32，在小程序本地模拟雷达移动、环境变化、设备联动和历史数据。
+
+新增接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/events` | 获取最近 32 条事件 |
+| POST | `/api/automation` | 保存自动化规则 |
+| POST | `/api/scene` | 应用一键场景 |
+
+自动化请求示例：
+
+```json
+{
+  "enabled": true,
+  "air_score_below": 60,
+  "humidity_below": 35,
+  "temperature_above": 30,
+  "purifier_level": 3,
+  "fresh_air_level": 2,
+  "humidifier_level": 2
+}
+```
+
+一键场景的 `scene` 可取：`HOME`、`AWAY`、`SLEEP`、`VENTILATE`、`CLEAN`。
+
+### 12.1 推荐演示流程
+
+1. 打开“离线演示”，确认页面无需网络即可出现环境数据、雷达目标和趋势曲线。
+2. 点击“回家”，展示灯光和环境设备联动。
+3. 开启自动模式并保存自动化规则。
+4. 点击“污染”环境预设，展示净化器、新风自动升档以及规则执行日志。
+5. 点击“强力净化”，展示一键场景切换。
+6. 查看“告警与操作日志”，说明所有关键动作都可追溯。
+7. 关闭离线演示，连接真实 ESP32，展示同一页面无缝切换到真实数据。
+
+离线演示模式只影响小程序本地数据，不会向 ESP32 发送控制请求；关闭开关后立即恢复真实局域网 API。

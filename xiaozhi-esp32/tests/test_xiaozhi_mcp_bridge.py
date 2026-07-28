@@ -22,10 +22,12 @@ class FakeResponse:
 class XiaozhiMcpBridgeTest(unittest.TestCase):
     def setUp(self):
         os.environ["ESP32_BASE_URL"] = "http://192.168.1.23:8080/"
+        os.environ.pop("ESP32_API_TOKEN", None)
         self.bridge = importlib.import_module("tools.xiaozhi_mcp_bridge.smart_home_bridge")
 
     def tearDown(self):
         os.environ.pop("ESP32_BASE_URL", None)
+        os.environ.pop("ESP32_API_TOKEN", None)
 
     def capture_request(self, response_payload=None):
         calls = []
@@ -38,6 +40,7 @@ class XiaozhiMcpBridgeTest(unittest.TestCase):
                 "body": json.loads(body) if body else None,
                 "timeout": timeout,
                 "content_type": request.headers.get("Content-type"),
+                "api_token": request.headers.get("X-api-key"),
             })
             return FakeResponse(response_payload or {"ok": True})
 
@@ -53,6 +56,24 @@ class XiaozhiMcpBridgeTest(unittest.TestCase):
         self.assertEqual("http://192.168.1.23:8080/api/state", calls[0]["url"])
         self.assertEqual("GET", calls[0]["method"])
         self.assertIsNone(calls[0]["body"])
+
+    def test_home_get_health_reads_diagnostics_endpoint(self):
+        calls, fake_urlopen = self.capture_request({"firmware_version": "2.2.6"})
+
+        with patch.object(self.bridge, "urlopen", fake_urlopen):
+            result = self.bridge.home_get_health()
+
+        self.assertEqual("2.2.6", result["firmware_version"])
+        self.assertEqual("http://192.168.1.23:8080/api/health", calls[0]["url"])
+
+    def test_api_token_is_forwarded_to_esp32(self):
+        os.environ["ESP32_API_TOKEN"] = "local-secret"
+        calls, fake_urlopen = self.capture_request({"ok": True})
+
+        with patch.object(self.bridge, "urlopen", fake_urlopen):
+            self.bridge.home_get_state()
+
+        self.assertEqual("local-secret", calls[0]["api_token"])
 
     def test_home_set_fresh_air_posts_device_payload(self):
         calls, fake_urlopen = self.capture_request({"fresh_air_level": 2})

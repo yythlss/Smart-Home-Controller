@@ -292,7 +292,7 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("GET,POST,OPTIONS", source)
 
     def test_mini_program_exposes_manual_environment_input(self):
-        mini_dir = ROOT / "docs" / "mini_program_demo" / "pages" / "index"
+        mini_dir = ROOT.parent / "mini_program_demo" / "pages" / "index"
         js = (mini_dir / "index.js").read_text(encoding="utf-8")
         wxml = (mini_dir / "index.wxml").read_text(encoding="utf-8")
         wxss = (mini_dir / "index.wxss").read_text(encoding="utf-8")
@@ -386,7 +386,7 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
         source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
 
-        for state_field in ["has_radar_data", "radar_target_count"]:
+        for state_field in ["has_radar_data", "radar_target_count", "radar_zone", "radar_nearest_x_mm"]:
             self.assertIn(state_field, header)
             self.assertIn(f'"{state_field}"', source)
 
@@ -395,10 +395,26 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("kLightOnThresholdPercent", header)
         self.assertIn("kLightOffThresholdPercent", header)
         self.assertIn("state_.ambient_light_percent >= kLightOffThresholdPercent", source)
-        radar_body = source.split("void SmartHomeController::UpdateRadarObservation", 1)[1].split(
-            "void SmartHomeController::UpdateAmbientLight", 1
-        )[0]
-        self.assertNotIn("UpdatePresence(false)", radar_body)
+        self.assertIn("kRadarVacancyTimeoutMs", header)
+        self.assertIn("radar_clear_since_ms_", header)
+        self.assertIn("UpdatePresence(false)", source)
+
+    def test_controller_health_thread_safety_and_manual_override_contract(self):
+        header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
+        source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+        board = (BOARD_DIR / "compact_wifi_board.cc").read_text(encoding="utf-8")
+        http = (BOARD_DIR / "smart_home_http_server.cc").read_text(encoding="utf-8")
+
+        for symbol in [
+            "StateGuard", "xSemaphoreCreateRecursiveMutex", "BuildHealthJson",
+            "UpdateSensorHealth", "UpdateRadarHealth", "kManualOverrideDurationMs",
+            "kAlarmConfirmationSamples", "sample_time_ms",
+        ]:
+            self.assertIn(symbol, header + source)
+        self.assertIn("DHT11_CACHE_MAX_AGE_MS", board)
+        self.assertIn('"/api/health"', http)
+        self.assertIn("X-API-Key", http)
+        self.assertIn("SMART_HOME_API_TOKEN", http)
 
     def test_ld2450_sensor_exposes_wiring_diagnostics(self):
         header = (BOARD_DIR / "ld2450_sensor.h").read_text(encoding="utf-8")
@@ -411,6 +427,35 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("valid_frame_count_", source)
         self.assertIn("rejected_frame_count_", source)
         self.assertIn("LD2450 stats", board)
+
+    def test_demo_enhancements_expose_rules_scenes_events_radar_and_offline_mode(self):
+        header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
+        source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+        http = (BOARD_DIR / "smart_home_http_server.cc").read_text(encoding="utf-8")
+        mini_dir = ROOT.parent / "mini_program_demo" / "pages" / "index"
+        js = (mini_dir / "index.js").read_text(encoding="utf-8")
+        wxml = (mini_dir / "index.wxml").read_text(encoding="utf-8")
+        wxss = (mini_dir / "index.wxss").read_text(encoding="utf-8")
+
+        for symbol in [
+            "AutomationRuleConfig", "SmartHomeEvent", "SetAutomationRule",
+            "ApplyScene", "BuildEventsJson", "EvaluateAutomationRule",
+        ]:
+            self.assertIn(symbol, header + source)
+        for endpoint in ['"/api/events"', '"/api/automation"', '"/api/scene"']:
+            self.assertIn(endpoint, http)
+        for symbol in [
+            "toggleDemoMode", "drawTrendChart", "setScene", "saveAutomationRule",
+            "initializeDemoData", '"/api/events"',
+        ]:
+            self.assertIn(symbol, js)
+        for binding in [
+            'bindchange="toggleDemoMode"', 'bindtap="setScene"',
+            'bindtap="saveAutomationRule"', 'id="trendCanvas"',
+        ]:
+            self.assertIn(binding, wxml)
+        for style in [".radar-map", ".trend-canvas", ".scene-grid", ".event-row"]:
+            self.assertIn(style, wxss)
 
     def test_ld2450_initialization_does_not_stop_target_reporting(self):
         source = (BOARD_DIR / "ld2450_sensor.cc").read_text(encoding="utf-8")

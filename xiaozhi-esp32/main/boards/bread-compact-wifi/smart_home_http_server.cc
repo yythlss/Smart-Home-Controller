@@ -63,6 +63,8 @@ const char* StatusText(int status_code) {
             return "204 No Content";
         case 400:
             return "400 Bad Request";
+        case 401:
+            return "401 Unauthorized";
         case 500:
             return "500 Internal Server Error";
         default:
@@ -93,7 +95,7 @@ bool SmartHomeHttpServer::Start() {
     config.ctrl_port = kSmartHomeHttpPort + 1;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.stack_size = 6144;
-    config.max_uri_handlers = 10;
+    config.max_uri_handlers = 14;
 
     esp_err_t err = httpd_start(&server_, &config);
     if (err != ESP_OK) {
@@ -115,6 +117,20 @@ bool SmartHomeHttpServer::Start() {
     history.handler = HistoryHandler;
     history.user_ctx = this;
     httpd_register_uri_handler(server_, &history);
+
+    httpd_uri_t health = {};
+    health.uri = "/api/health";
+    health.method = HTTP_GET;
+    health.handler = HealthHandler;
+    health.user_ctx = this;
+    httpd_register_uri_handler(server_, &health);
+
+    httpd_uri_t events = {};
+    events.uri = "/api/events";
+    events.method = HTTP_GET;
+    events.handler = EventsHandler;
+    events.user_ctx = this;
+    httpd_register_uri_handler(server_, &events);
 
     httpd_uri_t device = {};
     device.uri = "/api/device";
@@ -151,6 +167,20 @@ bool SmartHomeHttpServer::Start() {
     alarm_ack.user_ctx = this;
     httpd_register_uri_handler(server_, &alarm_ack);
 
+    httpd_uri_t automation = {};
+    automation.uri = "/api/automation";
+    automation.method = HTTP_POST;
+    automation.handler = AutomationHandler;
+    automation.user_ctx = this;
+    httpd_register_uri_handler(server_, &automation);
+
+    httpd_uri_t scene = {};
+    scene.uri = "/api/scene";
+    scene.method = HTTP_POST;
+    scene.handler = SceneHandler;
+    scene.user_ctx = this;
+    httpd_register_uri_handler(server_, &scene);
+
     httpd_uri_t options = {};
     options.uri = "/api/*";
     options.method = HTTP_OPTIONS;
@@ -158,8 +188,9 @@ bool SmartHomeHttpServer::Start() {
     options.user_ctx = this;
     httpd_register_uri_handler(server_, &options);
 
-    ESP_LOGI(TAG, "Mini program HTTP API started on port %u: /api/state /api/history /api/device /api/mode /api/environment /api/context /api/alarm/ack",
-        kSmartHomeHttpPort);
+    ESP_LOGI(TAG, "Mini program HTTP API started on port %u: state history health events device mode environment context alarm automation scene",
+             kSmartHomeHttpPort);
+    ESP_LOGI(TAG, "HTTP API authentication: %s", SMART_HOME_API_TOKEN[0] == '\0' ? "disabled" : "enabled");
     return true;
 }
 
@@ -171,31 +202,58 @@ void SmartHomeHttpServer::Stop() {
 }
 
 esp_err_t SmartHomeHttpServer::StateHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleState(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleState(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::HistoryHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleHistory(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleHistory(req) : self->SendError(req, 401, "unauthorized");
+}
+
+esp_err_t SmartHomeHttpServer::HealthHandler(httpd_req_t* req) {
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleHealth(req) : self->SendError(req, 401, "unauthorized");
+}
+
+esp_err_t SmartHomeHttpServer::EventsHandler(httpd_req_t* req) {
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleEvents(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::DeviceHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleDevice(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleDevice(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::ModeHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleMode(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleMode(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::EnvironmentHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleEnvironment(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleEnvironment(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::ContextHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleContext(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleContext(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::AlarmAckHandler(httpd_req_t* req) {
-    return static_cast<SmartHomeHttpServer*>(req->user_ctx)->HandleAlarmAck(req);
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleAlarmAck(req) : self->SendError(req, 401, "unauthorized");
+}
+
+esp_err_t SmartHomeHttpServer::AutomationHandler(httpd_req_t* req) {
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleAutomation(req) : self->SendError(req, 401, "unauthorized");
+}
+
+esp_err_t SmartHomeHttpServer::SceneHandler(httpd_req_t* req) {
+    auto* self = static_cast<SmartHomeHttpServer*>(req->user_ctx);
+    return self->IsAuthorized(req) ? self->HandleScene(req) : self->SendError(req, 401, "unauthorized");
 }
 
 esp_err_t SmartHomeHttpServer::OptionsHandler(httpd_req_t* req) {
@@ -208,6 +266,14 @@ esp_err_t SmartHomeHttpServer::HandleState(httpd_req_t* req) {
 
 esp_err_t SmartHomeHttpServer::HandleHistory(httpd_req_t* req) {
     return SendJson(req, controller_->BuildHistoryJson());
+}
+
+esp_err_t SmartHomeHttpServer::HandleHealth(httpd_req_t* req) {
+    return SendJson(req, controller_->BuildHealthJson());
+}
+
+esp_err_t SmartHomeHttpServer::HandleEvents(httpd_req_t* req) {
+    return SendJson(req, controller_->BuildEventsJson());
 }
 
 esp_err_t SmartHomeHttpServer::HandleDevice(httpd_req_t* req) {
@@ -334,10 +400,42 @@ esp_err_t SmartHomeHttpServer::HandleAlarmAck(httpd_req_t* req) {
     return SendJson(req, controller_->BuildStateJson());
 }
 
+esp_err_t SmartHomeHttpServer::HandleAutomation(httpd_req_t* req) {
+    cJSON* root = nullptr;
+    if (!ReadJsonBody(req, &root)) {
+        return SendError(req, 400, "invalid json body");
+    }
+    AutomationRuleConfig config = {};
+    config.enabled = JsonBool(root, "enabled", false);
+    config.air_score_below = JsonInt(root, "air_score_below", 60);
+    config.humidity_below = JsonInt(root, "humidity_below", 35);
+    config.temperature_above = JsonInt(root, "temperature_above", 30);
+    config.purifier_level = JsonInt(root, "purifier_level", 3);
+    config.fresh_air_level = JsonInt(root, "fresh_air_level", 2);
+    config.humidifier_level = JsonInt(root, "humidifier_level", 2);
+    cJSON_Delete(root);
+    controller_->SetAutomationRule(config);
+    return SendJson(req, controller_->BuildStateJson());
+}
+
+esp_err_t SmartHomeHttpServer::HandleScene(httpd_req_t* req) {
+    cJSON* root = nullptr;
+    if (!ReadJsonBody(req, &root)) {
+        return SendError(req, 400, "invalid json body");
+    }
+    const char* scene = JsonString(root, "scene");
+    const bool handled = controller_->ApplyScene(scene);
+    cJSON_Delete(root);
+    if (!handled) {
+        return SendError(req, 400, "unknown scene");
+    }
+    return SendJson(req, controller_->BuildStateJson());
+}
+
 esp_err_t SmartHomeHttpServer::HandleOptions(httpd_req_t* req) {
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    SetCorsHeaders(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type,X-API-Key,Authorization");
     httpd_resp_set_status(req, StatusText(204));
     return httpd_resp_send(req, nullptr, 0);
 }
@@ -354,8 +452,8 @@ esp_err_t SmartHomeHttpServer::SendJson(httpd_req_t* req, cJSON* json, int statu
     }
 
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    SetCorsHeaders(req);
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type,X-API-Key,Authorization");
     if (status_code != 200) {
         httpd_resp_set_status(req, StatusText(status_code));
     }
@@ -389,4 +487,26 @@ bool SmartHomeHttpServer::ReadJsonBody(httpd_req_t* req, cJSON** root) {
 
     *root = cJSON_ParseWithLength(body.data(), body.size());
     return *root != nullptr;
+}
+
+bool SmartHomeHttpServer::IsAuthorized(httpd_req_t* req) const {
+    if (SMART_HOME_API_TOKEN[0] == '\0') {
+        return true;
+    }
+    char value[128] = {};
+    if (httpd_req_get_hdr_value_str(req, "X-API-Key", value, sizeof(value)) == ESP_OK &&
+        std::strcmp(value, SMART_HOME_API_TOKEN) == 0) {
+        return true;
+    }
+    value[0] = '\0';
+    if (httpd_req_get_hdr_value_str(req, "Authorization", value, sizeof(value)) == ESP_OK &&
+        std::strncmp(value, "Bearer ", 7) == 0 &&
+        std::strcmp(value + 7, SMART_HOME_API_TOKEN) == 0) {
+        return true;
+    }
+    return false;
+}
+
+void SmartHomeHttpServer::SetCorsHeaders(httpd_req_t* req) const {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", SMART_HOME_CORS_ORIGIN);
 }

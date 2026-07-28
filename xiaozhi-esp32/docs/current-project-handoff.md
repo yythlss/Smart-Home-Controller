@@ -1,5 +1,7 @@
 # xiaozhi-esp32 当前工程交付说明
 
+> 2026-07-28 已完成两轮“只增加代码、不更换硬件”增强。稳定性内容见 [`phase-handoff-2026-07-28-software-reliability.md`](phase-handoff-2026-07-28-software-reliability.md)，小程序演示增强见 [`phase-handoff-2026-07-28-mini-program-demo-enhancements.md`](phase-handoff-2026-07-28-mini-program-demo-enhancements.md)。本节更新优先于文档中较早的 HMI 外部路径和“雷达/光敏尚未接入”描述；当前 HMI 工程已保存在仓库 `hmi/`。
+
 本文档记录截至 `2026-07-19` 的当前工程状态，供交付和接续开发使用。
 
 ## 工程位置
@@ -35,6 +37,7 @@
 - 2026-07-14 AI 联网增强：电脑端小智 MCP 桥接新增灯光、占用/亮度、报警确认、天气、RSS 新闻和室内外综合建议工具。
 - 2026-07-18 已接入 GL5528 类光敏模块的 ADC 驱动，以及 HLK-LD2450 的 UART1 收包和标准目标帧解析；雷达实物线束和收包验证仍待完成。
 - 2026-07-19 已根据实物确认光敏模块的 AO 为“遮光数值升高、照亮数值降低”，默认校准已改为 `DARK_RAW=3300`、`BRIGHT_RAW=300`，需重新烧录后验证。
+- 2026-07-28 小程序新增离线演示、雷达二维位置图、三指标趋势曲线、自定义自动化规则、五种一键场景和最近 32 条事件日志；新增 `/api/events`、`/api/automation`、`/api/scene`。
 - 蜂鸣器和独立 LED 灯的真实输出仍未接入，原因是供电、驱动电路和 GPIO 尚未最终确认；`light_on` 目前仅是可验证的逻辑状态。
 
 ## 当前固件能力
@@ -156,7 +159,7 @@ BTN,ENV,SCENE,POLLUTED
 | `../文档/硬件连接与软件验证步骤.md` | 接线、构建、烧录、monitor 验证 |
 | `../文档/智能家居外设接线与验证步骤.md` | 7 月 5 日新增智能家居、MCP、HTTP API、小程序、空气曲线和外设的完整接线与验证手册 |
 | `../文档/串口屏与环境监测项目交付说明.md` | 板型目录内交付说明 |
-| `docs/mini_program_demo/README.md` | 小程序局域网演示工程导入、HTTP API 预验证、模拟器/真机验收和故障排查手册 |
+| `../../mini_program_demo/README.md` | 小程序局域网演示工程导入、HTTP API 预验证、模拟器/真机验收和故障排查手册；实际工程位于仓库根目录 `mini_program_demo` |
 | `docs/project-file-map.md` | 工程文件索引和清理说明 |
 | `docs/phase-handoff-2026-06-09-work1-integration.md` | 本阶段整合交付文档 |
 | `docs/phase-handoff-2026-06-09-serial-screen-score-page.md` | page1 空气评分页阶段交付文档 |
@@ -214,51 +217,45 @@ MQ135 当前只做演示级估算，不是准确 ppm 检测。page1 当前显示
 
 ## 最近一次构建验证
 
-验证日期：`2026-07-19`
+验证日期：`2026-07-28`
 
 验证命令：
 
-```powershell
-& 'D:\esp\Espressif\frameworks\esp-idf-v5.5.2\export.ps1'
-idf.py -B build_codex_check build
-```
+使用当前机器已安装的 ESP-IDF `5.5.3` 和现有 `build/` 目录执行 Ninja 完整构建。不要复制旧文档中的固定盘符；应先运行本机 ESP-IDF 导出脚本，或使用 VS Code Espressif 扩展初始化终端。
 
 验证结果：
 
 ```text
-Project build complete.
-Generated E:/espwork/xiaozhi-esp32/xiaozhi-esp32/build_codex_check/xiaozhi.bin
-xiaozhi.bin binary size 0x2485c0 bytes.
+Build completed successfully.
+Generated build/xiaozhi.bin
+xiaozhi.bin binary size 0x24bef0 bytes.
 Smallest app partition is 0x3f0000 bytes.
-0x1a7a40 bytes (42%) free.
+0x1a4110 bytes (42%) free.
 ```
 
 生成固件：
 
 ```text
-build_codex_check/xiaozhi.bin
+build/xiaozhi.bin
 ```
 
-说明：若 `build_codex_check` 不存在，先按上述 `idf.py -B` 命令创建独立构建目录；之后可使用 `scripts/build_codex_check.ps1` 进行增量 Ninja 验证。不要执行 `idf.py set-target` 或 `menuconfig`。
+说明：本次构建使用 ESP-IDF `5.5.3`；组件清单要求 `>=5.5.2`。当前机器旧的 `D:\esp\...5.5.2` 文档路径不存在，后续不要继续写死工具链路径。不要执行 `idf.py set-target` 或 `menuconfig`，除非明确需要重新配置板型。
 
 ## 下一阶段目标
 
-1. 用 USART HMI 编辑器打开 `D:/QQ/serial_warm_home .HMI`，先另存为 `D:/QQ/serial_warm_home_manual_edit.HMI`。
-2. 按 `串口屏手动事件配置手册.md` 的“完全手动配置总流程”导入 `ui_assets/page*.png` 背景。
-3. 先只配置 page0 的 `hs_air`，完成 page0 到 page1 的最小点击闭环验证。
-4. 再创建 page0、page1、page2、page3 的数据控件和触摸热区。
-5. 最后再加入左右翻页热区 `hs_prev`、`hs_next`，避免一开始覆盖图标热区。
-6. 保存、编译并下载 HMI 工程到串口屏，实机验证 `BTN,PAGE,...`、`BTN,PAGE,NEXT/PREV` 和 page1 新控件刷新。
-7. 烧录 ESP32 固件，验证 `[TJC] t_air_score`、`[TJC] j_air_detail`、`[TJC] t_air_raw` 等日志和屏幕显示。
-8. 接入真实 DHT11 和 MQ135，记录传感器读数稳定性。
-9. 实机验证 `BTN,DEVICE,FAN,TOGGLE` 时，确认 180°舵机扇叶按 `关 -> 低幅慢速 -> 中幅中速 -> 全幅快速 -> 关` 循环；若打到结构件，收窄 `SetServoProfileForLevel()` 的角度范围。
-10. 若验证小程序 HTTP API，先等 WiFi 连接成功并确认 monitor 出现 `Network connected, starting mini program HTTP API`，再访问 `http://<ESP32_IP>:8080/api/state`。
-11. 若验证微信小程序，按 `docs/mini_program_demo/README.md` 执行：先浏览器/PowerShell 验证 HTTP API，再导入微信开发者工具，先模拟器后手机真机。
-12. 若验证外设控制，按下 page2 设备热区后同时观察 `Screen event` 和 `SmartHome: Apply ... output` 日志；若出现 `Brownout detector was triggered`，先断开舵机风扇和屏幕分段验证供电。
-13. 确认蜂鸣器、雷达、独立灯和光敏传感器的具体型号、供电、输出接口和 GPIO 后，再接真实硬件驱动；当前可用 `/api/context` 和 MCP 工具模拟占用与亮度。
+1. 烧录 `build/xiaozhi.bin`，确认启动后没有互斥锁创建失败、任务创建失败或 Watchdog 日志。
+2. 访问 `/api/health`，确认固件版本、空闲内存、Wi-Fi RSSI、DHT11/MQ135/光敏/雷达健康字段可读。
+3. 临时断开 DHT11 数据线，确认 30 秒内显示缓存，超过 30 秒后 `dht_stale=true` 且温湿度不再作为有效实时数据。
+4. 在自动模式中手动设置净化器档位，确认 `purifier_override_remaining_seconds` 开始倒计时，自动规则暂不覆盖该设备。
+5. 重新开启自动模式，确认所有手动覆盖立即清零并恢复规则接管。
+6. 连续验证雷达坐标和 `radar_zone=left/center/right`；连续 2 分钟无目标后确认无人关机逻辑生效。
+7. 验证环境突变需要连续两个采样周期才报警，确认报警后 60 秒内不会重复弹出。
+8. 重启设备，确认自动/节能模式从 NVS 恢复，但执行器具体档位不会被危险地直接恢复。
+9. 微信小程序填写局域网地址，确认每 10 秒刷新、历史相对时间和设备诊断页正常。
+10. 如需启用鉴权，在 `config.h` 设置非空 `SMART_HOME_API_TOKEN`，并在小程序、PowerShell 或 MCP 桥接设置同一 Token。
 
 ## 接续开发硬规则
 
-- 开始开发前必须先阅读 `AGENTS.md`、本文档、`docs/project-file-map.md`、`docs/continuation-notes.md` 和当前板型关键源码。
+- 开始开发前先阅读本文档、`docs/project-file-map.md`、`docs/continuation-notes.md` 和当前板型关键源码；若仓库后续新增 `AGENTS.md`，再同时遵循其中约束。
 - 每完成一个明确阶段，必须新增或更新中文阶段交付文档。
 - 不修改 `.vscode/**`、`sdkconfig*`、`CMakePresets.json`、ESP-IDF 工具链、全局环境变量等受保护内容，除非用户明确授权。

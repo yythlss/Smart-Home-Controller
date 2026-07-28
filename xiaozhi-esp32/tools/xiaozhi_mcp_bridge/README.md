@@ -54,6 +54,7 @@ PowerShell 示例：
 ```powershell
 $env:MCP_ENDPOINT = "wss://api.xiaozhi.me/mcp/?token=你的新token"
 $env:ESP32_BASE_URL = "http://192.168.1.23:8080"
+$env:ESP32_API_TOKEN = ""  # 固件未启用鉴权时留空
 $env:NEWS_RSS_URL = "https://你的可信新闻源/rss.xml"
 ```
 
@@ -61,6 +62,7 @@ $env:NEWS_RSS_URL = "https://你的可信新闻源/rss.xml"
 
 - `MCP_ENDPOINT`：小智平台给出的 MCP 接入点。
 - `ESP32_BASE_URL`：ESP32S3 局域网 HTTP API 地址。
+- `ESP32_API_TOKEN`：可选；必须与固件 `SMART_HOME_API_TOKEN` 一致，桥接会通过 `X-API-Key` 转发。
 - `NEWS_RSS_URL`：可选，AI 读取新闻时使用的可信 RSS 地址；不配置时新闻工具会返回明确错误。
 - 天气工具使用 Open-Meteo，不需要 API 密钥；桥接电脑必须能访问互联网。
 - 不要把真实 token 写入 `mcp_config.json`。
@@ -95,6 +97,7 @@ python .cache\mcp-calculator\mcp_pipe.py tools\xiaozhi_mcp_bridge\smart_home_bri
 
 ```text
 home_get_state
+home_get_health
 home_set_purifier
 home_set_fresh_air
 home_set_humidifier
@@ -125,6 +128,7 @@ home_get_combined_advice
 模拟污染环境
 模拟干燥环境
 现在环境怎么样
+检查设备和传感器是否正常
 查询杭州天气
 读三条新闻
 结合杭州天气给我室内环境建议

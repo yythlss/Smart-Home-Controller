@@ -6,7 +6,7 @@
 
 每次继续开发前，先按顺序阅读：
 
-1. `E:/espwork/AGENTS.md`
+1. 若当前仓库存在 `AGENTS.md` 则先阅读；当前版本未包含该文件
 2. `docs/current-project-handoff.md`
 3. `docs/project-file-map.md`
 4. `docs/phase-handoff-2026-06-09-work1-integration.md`
@@ -21,11 +21,13 @@
 13. `docs/phase-handoff-2026-07-14-smart-sensing-ai-automation.md`
 14. `docs/phase-handoff-2026-07-18-ld2450-ambient-light-integration.md`
 15. `docs/phase-handoff-2026-07-19-ambient-light-polarity-and-radar-cable.md`
-16. `../文档/串口屏与环境监测项目交付说明.md`
-17. 如果涉及小程序，再读：
-   - `docs/mini_program_demo/README.md`
-   - `../文档/智能家居外设接线与验证步骤.md` 的第 12、13 节
-18. 如果涉及串口屏，再读：
+16. `docs/phase-handoff-2026-07-28-software-reliability.md`
+17. `docs/phase-handoff-2026-07-28-mini-program-demo-enhancements.md`
+18. `../文档/串口屏与环境监测项目交付说明.md`
+19. 如果涉及小程序，再读：
+    - 仓库根目录 `mini_program_demo/README.md`
+    - `../文档/智能家居外设接线与验证步骤.md` 的第 12、13 节
+20. 如果涉及串口屏，再读：
    - `../文档/串口屏手动事件配置手册.md`
    - `main/boards/bread-compact-wifi/serial_hmi_widgets.json`
    - `../文档/串口屏设计说明.md`
@@ -182,14 +184,15 @@ main/boards/bread-compact-wifi
 
 如果新增代码依赖新的 ESP-IDF 组件，需要把组件名加入 `main/CMakeLists.txt` 的 `PRIV_REQUIRES`。
 
-构建建议使用独立目录验证：
+构建前先使用本机 ESP-IDF 安装提供的导出脚本或 VS Code Espressif 扩展初始化终端，不要复制历史文档中的固定盘符。例如：
 
 ```powershell
-& 'D:\esp\Espressif\frameworks\esp-idf-v5.5.2\export.ps1'
-idf.py -B build_codex_check build
+& '<你的 ESP-IDF 安装目录>\export.ps1'
+idf.py build
 ```
 
 不要为了验证随意运行 `idf.py set-target` 或 `menuconfig`，这些会改写受保护配置。
+2026-07-28 已使用 ESP-IDF `5.5.3` 完整构建通过，结果见 `docs/phase-handoff-2026-07-28-software-reliability.md`。
 
 ## 硬件注意事项
 
@@ -202,9 +205,19 @@ idf.py -B build_codex_check build
 
 ## 当前遗留问题
 
-- HMI 文件在 `D:/QQ`，不在 Git 工程内；交付时需要单独同步给队友。
+- HMI 工程已提交到仓库 `hmi/`；旧文档中 `D:/QQ` 路径只作为历史记录，不再是唯一交付源。
 - PM2.5、CO2、TVOC 目前没有真实传感器；page1 已改为评分页，后续接入真实硬件后再新增浓度控件和固件刷新逻辑。
 - MQ135 空气质量算法只是演示阈值，后续需要标定。
 - 智能家居事件已控制现有外设，但 180°舵机扇叶的安全摆幅仍需要实机校准。
-- 蜂鸣器、雷达、独立灯和光敏传感器当前只有规则层和接口，真实驱动需等待型号、接口、电气规格和 GPIO 确认。
+- 雷达和光敏驱动已经接入代码，并新增健康状态、雷达坐标和区域输出；仍需烧录后进行实机数据验收。独立灯仍只有逻辑状态和回调接口，不在本轮“只改代码”范围内绑定新 GPIO。
 - 队友 AI 聊天显示方案需先补 HMI 控件后再接。
+
+## 2026-07-28 纯软件增强
+
+- `SmartHomeController` 已使用递归互斥锁保护跨任务状态。
+- DHT11 缓存有效期为 30 秒，健康接口会报告数据年龄和连续失败次数。
+- 手动控制提供 30 分钟设备级覆盖；自动/节能模式状态保存到 NVS。
+- 雷达输出最近目标坐标和左/中/右区域，连续 2 分钟无目标后才判定无人。
+- 环境突变报警增加连续两次确认和 60 秒冷却。
+- HTTP 新增 `/api/health` 与可选 Token，小程序和 MCP 桥接均支持 `X-API-Key`。
+- 详细验证和字段说明见 `docs/phase-handoff-2026-07-28-software-reliability.md`。
