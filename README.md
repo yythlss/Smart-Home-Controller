@@ -69,32 +69,40 @@ flowchart LR
 
 ```text
 Smart-Home-Controller/
-├── README.md                         项目总览与快速开始
-├── .github/workflows/quality.yml     Python、JSON 和小程序 JavaScript 质量检查
-├── xiaozhi-esp32/                    ESP-IDF 固件主工程
-│   ├── main/                         应用、音频、协议、显示和板级代码
+├── README.md                          项目总览、部署说明与验收入口
+├── .github/
+│   └── workflows/quality.yml          Python、JSON 和小程序 JavaScript 质量检查
+├── xiaozhi-esp32/                     ESP-IDF 固件主工程
+│   ├── main/                          应用、音频、协议、显示和板级代码
 │   │   └── boards/bread-compact-wifi/
-│   │       ├── compact_wifi_board.cc 板级入口与任务初始化
-│   │       ├── config.h              GPIO、UART、ADC、I²S 和 PWM 配置
-│   │       ├── *_sensor.*            DHT11、MQ135、光敏和 LD2450 驱动
-│   │       ├── serial_hmi.*          TJC 串口屏显示与事件协议
+│   │       ├── compact_wifi_board.cc  板级入口与任务初始化
+│   │       ├── config.h               GPIO、UART、ADC、I²S 和 PWM 配置
+│   │       ├── *_sensor.*             DHT11、MQ135、光敏和 LD2450 驱动
+│   │       ├── serial_hmi.*           TJC 串口屏显示与事件协议
 │   │       ├── smart_home_controller.* 智能家居状态和自动控制
 │   │       └── smart_home_http_server.* 局域网 HTTP API
-│   ├── tools/xiaozhi_mcp_bridge/     电脑端 MCP 桥接服务
-│   ├── hmi/                          TJC/USART HMI 屏幕工程源码
-│   ├── scripts/                      构建、烧录和联调辅助脚本
-│   ├── tests/                        Python 回归测试
-│   ├── docs/                         固件开发与阶段交付文档
-│   └── partitions/                   Flash 分区表
-├── mini_program_demo/                微信小程序局域网演示工程
-│   ├── pages/index/                  家居主看板：状态、场景、设备、雷达和趋势
-│   ├── pages/admin/                  操作后台：连接、数据源、规则、日志和诊断
-│   └── utils/smart_home_service.js   两个页面共用的 HTTP 与离线模拟服务
-├── document/                         中文项目说明、接线和硬件资料
-└── 资料/                              传感器、串口屏和雷达参考资料
+│   ├── hmi/                           TJC/USART HMI 屏幕工程源码
+│   ├── tools/xiaozhi_mcp_bridge/      电脑端 MCP 桥接服务与配置示例
+│   ├── scripts/                       构建、烧录和联调辅助脚本
+│   ├── tests/                         固件与 MCP 桥接 Python 回归测试
+│   ├── docs/                          固件开发、调试和阶段交付文档
+│   └── partitions/                    16 MB Flash 分区表
+├── mini_program_demo/                 微信小程序局域网演示工程
+│   ├── app.js / app.json / app.wxss   小程序入口、页面注册与全局样式
+│   ├── pages/index/                   家居主看板：状态、场景、设备、雷达和趋势
+│   ├── pages/admin/                   操作后台：连接、数据源、规则、日志和诊断
+│   ├── utils/smart_home_service.js    双页面共用的 HTTP 与离线模拟服务
+│   ├── project.config.json            微信开发者工具项目配置
+│   └── README.md                      小程序导入、连接和演示说明
+└── document/                          项目交付与硬件参考资料
+    ├── 项目说明书.md                   中文项目总说明
+    ├── *接线*.md / *验证*.md           板级、传感器和外设接线验证文档
+    ├── HLK-LD2450使用教程V1.1.pdf      雷达官方参考手册
+    ├── TJC4827T143_011R_P20.pdf        串口屏产品资料
+    └── HLK-2450_TOOL/                  雷达配置工具及运行依赖
 ```
 
-编译目录、ESP-IDF 依赖缓存、`sdkconfig`、本机微信开发者工具配置和测试日志均已通过 `.gitignore` 排除。正式屏幕工程源码保存在 [`xiaozhi-esp32/hmi/`](xiaozhi-esp32/hmi/)；克隆仓库后无需再单独传递 `.HMI` 文件。
+上图仅列出 Git 实际跟踪的项目内容；本地空目录、交付压缩包、编译目录、ESP-IDF 依赖缓存、`sdkconfig`、微信开发者工具私有配置和测试日志不会进入仓库。正式屏幕工程源码保存在 [`xiaozhi-esp32/hmi/`](xiaozhi-esp32/hmi/)；克隆仓库后无需再单独传递 `.HMI` 文件。
 
 ## 硬件清单
 
