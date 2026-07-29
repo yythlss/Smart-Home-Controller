@@ -32,6 +32,12 @@ jobs:
         run: |
           python -m json.tool main/boards/bread-compact-wifi/serial_hmi_widgets.json > /dev/null
           python -m json.tool tools/xiaozhi_mcp_bridge/mcp_config.json > /dev/null
+          python -m json.tool ../mini_program_demo/app.json > /dev/null
+          python -m json.tool ../mini_program_demo/pages/index/index.json > /dev/null
+          python -m json.tool ../mini_program_demo/pages/admin/admin.json > /dev/null
 
       - name: Validate mini program JavaScript
-        run: node --check ../mini_program_demo/pages/index/index.js
+        run: |
+          node --check ../mini_program_demo/pages/index/index.js
+          node --check ../mini_program_demo/pages/admin/admin.js
+          node --check ../mini_program_demo/utils/smart_home_service.js

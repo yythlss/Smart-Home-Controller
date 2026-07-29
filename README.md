@@ -16,23 +16,23 @@
 - 局域网 HTTP API 同时服务微信小程序、调试脚本和电脑端 MCP 桥接。
 - 自动模式、节能模式、真实传感器系统和手动传感器系统共用同一个状态控制器。
 
-当前固件版本为 `2.2.6`，目标芯片为 ESP32-S3，ESP-IDF 组件清单要求 ESP-IDF `>= 5.5.2`。
+当前固件版本为 `2.2.6`，目标芯片为 ESP32-S3，ESP-IDF 组件清单要求 ESP-IDF `>= 5.5.2`。本仓库最近一次完整固件构建使用 ESP-IDF `5.5.3`。
 
 ## 功能状态
 
 | 模块 | 当前状态 | 说明 |
 | --- | --- | --- |
 | 小智 AI 语音 | 已实现 | Wi-Fi 配网、唤醒、流式 ASR/LLM/TTS、OTA、MCP |
-| DHT11 温湿度 | 已实现 | 5 秒采样，失败时保留最近有效值 |
+| DHT11 温湿度 | 已实现 | 5 秒采样，瞬时失败时最多缓存最近有效值 30 秒，超时后标记无效 |
 | MQ135 空气质量 | 已实现 | ADC 原始值、演示级空气评分和建议；尚未完成 ppm 标定 |
 | GL5528 光敏 | 已实现 | ADC 采样、反向标定、平滑滤波和自动灯光逻辑 |
 | HLK-LD2450 雷达 | 已实现 | UART1 目标帧解析，最多 3 个目标 |
 | TJC 串口屏 | 已实现 | 4 个页面、GBK 中文、触摸事件、趋势曲线 |
 | 智能家居执行器 | 已实现 | 净化/加湿 PWM 指示与舵机新风演示输出 |
-| 自动与节能模式 | 已实现 | 根据环境数据自动调整设备档位 |
+| 自动与节能模式 | 已实现 | 环境联动、设备级 30 分钟手动覆盖、NVS 模式恢复和可配置自动化阈值 |
 | HTTP API | 已实现 | 端口 `8080`，状态、历史、健康、事件、设备、模式、环境、自动化和场景接口 |
 | 微信小程序 | 已实现 | 家庭主看板与操作后台分离；主页面用于日常控制，后台用于连接、数据源、规则、日志和诊断 |
-| MCP 桥接 | 已实现 | 将小智平台工具调用转发到 ESP32 HTTP API |
+| MCP 桥接 | 已实现 | 转发 ESP32 状态、健康、设备、模式和手动环境控制，并提供天气、RSS 新闻和综合建议 |
 | 实际照明输出 | 待接入 | 已有灯光状态、规则、API 和 MCP，尚未绑定独立 GPIO |
 | 专业空气检测 | 待标定 | MQ135 当前仅用于课程/演示，不可替代专业仪器 |
 
@@ -70,6 +70,7 @@ flowchart LR
 ```text
 Smart-Home-Controller/
 ├── README.md                         项目总览与快速开始
+├── .github/workflows/quality.yml     Python、JSON 和小程序 JavaScript 质量检查
 ├── xiaozhi-esp32/                    ESP-IDF 固件主工程
 │   ├── main/                         应用、音频、协议、显示和板级代码
 │   │   └── boards/bread-compact-wifi/
@@ -160,8 +161,8 @@ cd Smart-Home-Controller/xiaozhi-esp32
 
 推荐环境：
 
-- ESP-IDF `5.5.2` 或更高兼容版本
-- Python 3.10+
+- ESP-IDF `5.5.3`；组件声明的最低兼容要求为 `5.5.2`
+- Python 3.11；脚本最低按 Python 3.10+ 使用
 - CMake、Ninja、Git
 - VS Code + Espressif IDF 扩展，或 ESP-IDF 命令行环境
 
@@ -276,7 +277,7 @@ HTTP API 支持可选 Token 鉴权。在 `config.h` 中把 `SMART_HOME_API_TOKEN
 - 最近 32 条设备、模式、人员、告警、场景和自动化事件保存在 RAM 环形队列中。
 - 小程序提供雷达二维位置图、三指标趋势曲线、五种一键场景和无需 ESP32 的离线演示模式。
 - 小程序采用双页面架构：主看板只保留家庭状态、场景、设备、雷达和趋势；操作后台负责连接参数、真实/手动传感器切换、规则、日志和诊断。
-- `.github/workflows/quality.yml` 会在推送和拉取请求时运行 Python 回归、JSON 契约和小程序 JavaScript 检查。
+- `.github/workflows/quality.yml` 会在推送和拉取请求时运行 Python 回归，校验 HMI、MCP 和小程序 JSON，并检查主看板、操作后台及共享服务 JavaScript。
 
 ## 微信小程序
 
@@ -329,9 +330,12 @@ python -m pip install -r tools\xiaozhi_mcp_bridge\requirements.txt
 
 $env:MCP_ENDPOINT = "wss://api.xiaozhi.me/mcp/?token=你的token"
 $env:ESP32_BASE_URL = "http://192.168.1.23:8080"
+$env:ESP32_API_TOKEN = ""  # 固件未启用 HTTP 鉴权时留空
 
 powershell -ExecutionPolicy Bypass -File scripts\start_xiaozhi_mcp_bridge.ps1
 ```
+
+电脑端桥接当前还提供 `home_get_health`、灯光控制、报警确认、手动环境启停、天气、RSS 新闻和室内外综合建议。天气和新闻属于电脑端联网能力，不在 ESP32 固件本地执行。
 
 不要把真实 MCP token 写入源码、配置样例、截图或提交记录。详细说明见 [`tools/xiaozhi_mcp_bridge/README.md`](xiaozhi-esp32/tools/xiaozhi_mcp_bridge/README.md)。
 
@@ -347,6 +351,17 @@ python -m unittest discover -s tests -v
 
 # 校验 HMI 控件契约 JSON
 python -m json.tool main/boards/bread-compact-wifi/serial_hmi_widgets.json
+
+# 校验 MCP 与微信小程序 JSON
+python -m json.tool tools/xiaozhi_mcp_bridge/mcp_config.json
+python -m json.tool ../mini_program_demo/app.json
+python -m json.tool ../mini_program_demo/pages/index/index.json
+python -m json.tool ../mini_program_demo/pages/admin/admin.json
+
+# 校验小程序双页面与共享服务 JavaScript
+node --check ../mini_program_demo/pages/index/index.js
+node --check ../mini_program_demo/pages/admin/admin.js
+node --check ../mini_program_demo/utils/smart_home_service.js
 ```
 
 Windows 下可先检查 ESP32 HTTP API：
@@ -365,6 +380,16 @@ powershell -ExecutionPolicy Bypass -File scripts\test_esp32_http_api.ps1 `
 ```
 
 推荐实机验证顺序：供电与共地 → 固件启动 → 音频 → 传感器 → LD2450 → TJC 屏 → PWM/舵机 → HTTP API → 小程序 → MCP。
+
+### 最近一次验证结果
+
+截至 `2026-07-29`：
+
+- `python -m unittest discover -s tests -v`：35 项测试全部通过。
+- ESP-IDF `5.5.3` 完整构建成功，`xiaozhi.bin` 大小为 `0x24d370` 字节。
+- 最小应用分区为 `0x3f0000` 字节，剩余 `0x1a2c90` 字节，约 42%。
+- 小程序主看板、操作后台和共享服务 JavaScript 语法检查通过；相关 JSON 和 WXML 结构检查通过。
+- 尚未烧录本轮固件，也未完成微信开发者工具真机预览；实机状态以烧录后验收为准。
 
 ## 常见问题
 
@@ -415,6 +440,9 @@ powershell -ExecutionPolicy Bypass -File scripts\test_esp32_http_api.ps1 `
 - 接入市电家电必须使用合规继电器、光耦隔离、保险和绝缘外壳，不得直接由 ESP32 GPIO 驱动。
 - HTTP API 默认 Token 为空；在不可信网络使用前必须配置 `SMART_HOME_API_TOKEN` 并收紧跨域来源，仍不建议直接暴露公网。
 - LD2450 已输出最近目标坐标和左/中/右区域，并使用 2 分钟无人确认；完整轨迹、多区域自定义和现场标定仍可继续完善。
+- 最近 30 条环境采样和 32 条事件日志保存在 RAM，设备重启后会清空，不是长期数据库。
+- 小程序操作后台只是功能分区，不是账号权限或管理员认证系统；正式发布前仍需增加用户身份和设备绑定。
+- 离线演示与手动传感器系统用于联调和答辩，不代表真实硬件环境数据。
 
 ## 许可证与致谢
 
