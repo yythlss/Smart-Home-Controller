@@ -8,6 +8,12 @@ BOARD_DIR = ROOT / "main" / "boards" / "bread-compact-wifi"
 
 
 class BreadCompactWifiRegressionTest(unittest.TestCase):
+    def test_flash_builds_generated_default_assets_before_esptool(self):
+        cmake = (ROOT / "main" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("add_custom_target(generated_default_assets ALL", cmake)
+        self.assertIn("add_dependencies(flash generated_default_assets)", cmake)
+
     def test_dht11_driver_rejects_implausible_frames(self):
         source = (BOARD_DIR / "dht11_sensor.cc").read_text(encoding="utf-8")
 
