@@ -21,6 +21,7 @@ class FakeResponse:
 
 class XiaozhiMcpBridgeTest(unittest.TestCase):
     def setUp(self):
+        os.environ.pop("XIAOZHI_MCP_BRIDGE_MODE", None)
         os.environ["ESP32_BASE_URL"] = "http://192.168.1.23:8080/"
         os.environ.pop("ESP32_API_TOKEN", None)
         self.bridge = importlib.import_module("tools.xiaozhi_mcp_bridge.smart_home_bridge")
@@ -28,6 +29,7 @@ class XiaozhiMcpBridgeTest(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("ESP32_BASE_URL", None)
         os.environ.pop("ESP32_API_TOKEN", None)
+        os.environ.pop("XIAOZHI_MCP_BRIDGE_MODE", None)
 
     def capture_request(self, response_payload=None):
         calls = []
@@ -110,8 +112,43 @@ class XiaozhiMcpBridgeTest(unittest.TestCase):
     def test_missing_esp32_base_url_returns_clear_error(self):
         os.environ.pop("ESP32_BASE_URL", None)
 
-        with self.assertRaisesRegex(RuntimeError, "ESP32_BASE_URL"):
-            self.bridge.home_get_state()
+        result = self.bridge.home_get_state()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual("config_missing", result["error"]["code"])
+        self.assertIn("ESP32_BASE_URL", result["error"]["message"])
+
+    def test_compatibility_advice_propagates_state_dependency_error(self):
+        os.environ.pop("ESP32_BASE_URL", None)
+
+        result = self.bridge.home_get_advice()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual("dependency_config_missing", result["error"]["code"])
+        self.assertEqual("home_get_state", result["error"]["details"]["dependency"])
+
+    def test_external_mode_registers_only_enrichment_tools_by_default(self):
+        self.assertEqual("external", self.bridge._bridge_mode())
+        self.assertEqual({
+            "home_get_weather",
+            "home_get_news",
+            "home_get_combined_advice",
+        }, set(self.bridge.REGISTERED_TOOL_NAMES))
+        self.assertNotIn("home_set_purifier", self.bridge.REGISTERED_TOOL_NAMES)
+
+    def test_full_mode_is_available_for_legacy_compatibility(self):
+        os.environ["XIAOZHI_MCP_BRIDGE_MODE"] = "full"
+
+        self.assertEqual("full", self.bridge._bridge_mode())
+
+    def test_tool_errors_are_logged_without_raising(self):
+        os.environ.pop("ESP32_BASE_URL", None)
+
+        with self.assertLogs("xiaozhi_mcp_bridge", level="WARNING") as captured:
+            result = self.bridge.home_get_state()
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("config_missing" in line for line in captured.output))
 
     def test_home_set_light_posts_device_payload(self):
         calls, fake_urlopen = self.capture_request({"light_on": True})

@@ -1,6 +1,7 @@
 #include "smart_home_controller.h"
 #include "serial_hmi.h"
 #include "settings.h"
+#include "smart_home_policy.h"
 
 #include <esp_app_desc.h>
 #include <esp_err.h>
@@ -21,8 +22,6 @@
 #define TAG "SmartHome"
 
 namespace {
-constexpr int kAirCurveId = 12;
-
 const char* ResetReasonText(esp_reset_reason_t reason) {
     switch (reason) {
         case ESP_RST_POWERON: return "power_on";
@@ -353,10 +352,37 @@ EnvironmentSample SmartHomeController::DefaultManualSample() const {
     return BuildDecoratedSample(sample, "manual");
 }
 
+EnvironmentSample SmartHomeController::SanitizeEnvironmentSample(EnvironmentSample sample) const {
+    if (sample.has_temperature &&
+        (!std::isfinite(sample.temperature_c) || sample.temperature_c < -20.0f ||
+         sample.temperature_c > 60.0f)) {
+        ESP_LOGW(TAG, "Reject invalid temperature sample: %.2f", sample.temperature_c);
+        sample.has_temperature = false;
+        sample.temperature_c = 0.0f;
+    }
+    if (sample.has_humidity &&
+        (!std::isfinite(sample.humidity_percent) || sample.humidity_percent < 0.0f ||
+         sample.humidity_percent > 100.0f)) {
+        ESP_LOGW(TAG, "Reject invalid humidity sample: %.2f", sample.humidity_percent);
+        sample.has_humidity = false;
+        sample.humidity_percent = 0.0f;
+    }
+    if (sample.has_mq135_raw && (sample.mq135_raw < 0 || sample.mq135_raw > 4095)) {
+        ESP_LOGW(TAG, "Reject invalid MQ135 sample: %d", sample.mq135_raw);
+        sample.has_mq135_raw = false;
+        sample.mq135_raw = 0;
+    }
+    sample.air_score = sample.has_mq135_raw ? ClampScore(sample.air_score) : 0;
+    if (!sample.has_temperature || !sample.has_humidity) {
+        sample.cached_temperature_humidity = false;
+    }
+    return sample;
+}
+
 EnvironmentSample SmartHomeController::BuildDecoratedSample(EnvironmentSample sample, const char* source) const {
     sample.air_score = ClampScore(sample.air_score);
-    sample.manual_environment_mode = state_.manual_environment_mode;
     sample.environment_source = source != nullptr ? source : "sensor";
+    sample.manual_environment_mode = TokenEquals(sample.environment_source, "manual");
     sample.comfort = ComfortDescription(sample);
     sample.advice = AdviceForEnvironment(sample);
     return sample;
@@ -473,14 +499,40 @@ void SmartHomeController::ApplyAll() {
     ApplyLight();
 }
 
+void SmartHomeController::ApplyTargetLevels(int purifier_level, int fresh_air_level,
+                                            int humidifier_level) {
+    purifier_level = ClampLevel(purifier_level);
+    fresh_air_level = ClampLevel(fresh_air_level);
+    humidifier_level = ClampLevel(humidifier_level);
+    const bool purifier_changed = state_.purifier_level != purifier_level;
+    const bool fresh_air_changed = state_.fresh_air_level != fresh_air_level;
+    const bool humidifier_changed = state_.humidifier_level != humidifier_level;
+    state_.purifier_level = purifier_level;
+    state_.fresh_air_level = fresh_air_level;
+    state_.humidifier_level = humidifier_level;
+    if (purifier_changed) {
+        ApplyPurifier();
+    }
+    if (fresh_air_changed) {
+        ApplyFreshAir();
+    }
+    if (humidifier_changed) {
+        ApplyHumidifier();
+    }
+}
+
 void SmartHomeController::SetPurifier(bool power, int level) {
     StateGuard guard(*this);
+    const int target_level = NormalizeLevel(power, level);
     const int previous_level = state_.purifier_level;
+    if (previous_level == target_level && OverrideActive(purifier_override_until_ms_)) {
+        return;
+    }
     active_scene_ = "custom";
-    state_.purifier_level = NormalizeLevel(power, level);
+    state_.purifier_level = target_level;
     purifier_override_until_ms_ = NowMs() + kManualOverrideDurationMs;
-    ApplyPurifier();
     if (previous_level != state_.purifier_level) {
+        ApplyPurifier();
         char message[64] = {};
         std::snprintf(message, sizeof(message), "净化器切换到%d档", state_.purifier_level);
         RecordEvent("device", "manual", message);
@@ -489,12 +541,16 @@ void SmartHomeController::SetPurifier(bool power, int level) {
 
 void SmartHomeController::SetFreshAir(bool power, int level) {
     StateGuard guard(*this);
+    const int target_level = NormalizeLevel(power, level);
     const int previous_level = state_.fresh_air_level;
+    if (previous_level == target_level && OverrideActive(fresh_air_override_until_ms_)) {
+        return;
+    }
     active_scene_ = "custom";
-    state_.fresh_air_level = NormalizeLevel(power, level);
+    state_.fresh_air_level = target_level;
     fresh_air_override_until_ms_ = NowMs() + kManualOverrideDurationMs;
-    ApplyFreshAir();
     if (previous_level != state_.fresh_air_level) {
+        ApplyFreshAir();
         char message[64] = {};
         std::snprintf(message, sizeof(message), "新风切换到%d档", state_.fresh_air_level);
         RecordEvent("device", "manual", message);
@@ -503,12 +559,16 @@ void SmartHomeController::SetFreshAir(bool power, int level) {
 
 void SmartHomeController::SetHumidifier(bool power, int level) {
     StateGuard guard(*this);
+    const int target_level = NormalizeLevel(power, level);
     const int previous_level = state_.humidifier_level;
+    if (previous_level == target_level && OverrideActive(humidifier_override_until_ms_)) {
+        return;
+    }
     active_scene_ = "custom";
-    state_.humidifier_level = NormalizeLevel(power, level);
+    state_.humidifier_level = target_level;
     humidifier_override_until_ms_ = NowMs() + kManualOverrideDurationMs;
-    ApplyHumidifier();
     if (previous_level != state_.humidifier_level) {
+        ApplyHumidifier();
         char message[64] = {};
         std::snprintf(message, sizeof(message), "加湿器切换到%d档", state_.humidifier_level);
         RecordEvent("device", "manual", message);
@@ -517,44 +577,52 @@ void SmartHomeController::SetHumidifier(bool power, int level) {
 
 void SmartHomeController::SetAutoMode(bool enabled) {
     StateGuard guard(*this);
-    const bool changed = state_.auto_mode != enabled;
+    const bool target_eco_mode = enabled ? false : state_.eco_mode;
+    if (state_.auto_mode == enabled && state_.eco_mode == target_eco_mode) {
+        return;
+    }
     active_scene_ = "custom";
     state_.auto_mode = enabled;
+    state_.eco_mode = target_eco_mode;
     if (enabled) {
-        state_.eco_mode = false;
         ClearManualOverrides();
         EvaluateAutoMode(last_sample_);
+    } else {
+        automation_rule_active_ = false;
     }
     PersistModes();
-    if (changed) {
-        RecordEvent("mode", "manual", enabled ? "自动模式已开启" : "自动模式已关闭");
-    }
+    RecordEvent("mode", "manual", enabled ? "自动模式已开启" : "自动模式已关闭");
 }
 
 void SmartHomeController::SetEcoMode(bool enabled) {
     StateGuard guard(*this);
-    const bool changed = state_.eco_mode != enabled;
+    const bool target_auto_mode = enabled ? false : state_.auto_mode;
+    if (state_.eco_mode == enabled && state_.auto_mode == target_auto_mode) {
+        return;
+    }
     active_scene_ = "custom";
     state_.eco_mode = enabled;
+    state_.auto_mode = target_auto_mode;
     if (enabled) {
-        state_.auto_mode = false;
+        automation_rule_active_ = false;
         ClearManualOverrides();
         EvaluateEcoMode(last_sample_);
     }
     PersistModes();
-    if (changed) {
-        RecordEvent("mode", "manual", enabled ? "节能模式已开启" : "节能模式已关闭");
-    }
+    RecordEvent("mode", "manual", enabled ? "节能模式已开启" : "节能模式已关闭");
 }
 
 void SmartHomeController::SetLight(bool power) {
     StateGuard guard(*this);
     const bool changed = state_.light_on != power;
+    if (!changed && OverrideActive(light_override_until_ms_)) {
+        return;
+    }
     active_scene_ = "custom";
     state_.light_on = power;
     light_override_until_ms_ = NowMs() + kManualOverrideDurationMs;
-    ApplyLight();
     if (changed) {
+        ApplyLight();
         RecordEvent("device", "manual", power ? "灯光已开启" : "灯光已关闭");
     }
 }
@@ -705,13 +773,19 @@ void SmartHomeController::AcknowledgeAlarm() {
 
 void SmartHomeController::SetManualEnvironmentMode(bool enabled) {
     StateGuard guard(*this);
+    if (state_.manual_environment_mode == enabled) {
+        return;
+    }
     state_.manual_environment_mode = enabled;
     if (enabled) {
         manual_sample_ = BuildDecoratedSample(manual_sample_, "manual");
         ApplyEnvironmentSample(manual_sample_);
+    } else if (has_last_sensor_sample_) {
+        ApplyEnvironmentSample(last_sensor_sample_);
     } else {
-        last_sample_.manual_environment_mode = false;
-        last_sample_.environment_source = "sensor";
+        last_sample_ = BuildDecoratedSample(EnvironmentSample{}, "sensor");
+        last_sample_.sample_time_ms = NowMs();
+        has_alarm_baseline_ = false;
     }
     ESP_LOGI(TAG, "Manual environment mode: %s", enabled ? "enabled" : "disabled");
     RecordEvent("environment", "manual", enabled ? "已启用手动环境数据" : "已恢复真实传感器数据");
@@ -762,13 +836,23 @@ bool SmartHomeController::SetEnvironmentPreset(const char* preset) {
 
 void SmartHomeController::SetAutomationRule(const AutomationRuleConfig& config) {
     StateGuard guard(*this);
-    automation_rule_.enabled = config.enabled;
-    automation_rule_.air_score_below = std::max(0, std::min(100, config.air_score_below));
-    automation_rule_.humidity_below = std::max(0, std::min(100, config.humidity_below));
-    automation_rule_.temperature_above = std::max(-10, std::min(60, config.temperature_above));
-    automation_rule_.purifier_level = ClampLevel(config.purifier_level);
-    automation_rule_.fresh_air_level = ClampLevel(config.fresh_air_level);
-    automation_rule_.humidifier_level = ClampLevel(config.humidifier_level);
+    AutomationRuleConfig normalized = config;
+    normalized.air_score_below = std::max(0, std::min(100, config.air_score_below));
+    normalized.humidity_below = std::max(0, std::min(100, config.humidity_below));
+    normalized.temperature_above = std::max(-10, std::min(60, config.temperature_above));
+    normalized.purifier_level = ClampLevel(config.purifier_level);
+    normalized.fresh_air_level = ClampLevel(config.fresh_air_level);
+    normalized.humidifier_level = ClampLevel(config.humidifier_level);
+    if (automation_rule_.enabled == normalized.enabled &&
+        automation_rule_.air_score_below == normalized.air_score_below &&
+        automation_rule_.humidity_below == normalized.humidity_below &&
+        automation_rule_.temperature_above == normalized.temperature_above &&
+        automation_rule_.purifier_level == normalized.purifier_level &&
+        automation_rule_.fresh_air_level == normalized.fresh_air_level &&
+        automation_rule_.humidifier_level == normalized.humidifier_level) {
+        return;
+    }
+    automation_rule_ = normalized;
     automation_rule_active_ = false;
     PersistAutomationRule();
     RecordEvent("automation", "manual",
@@ -786,6 +870,7 @@ bool SmartHomeController::ApplyScene(const char* scene) {
 
     const uint64_t override_until = NowMs() + kManualOverrideDurationMs;
     ClearManualOverrides();
+    automation_rule_active_ = false;
     if (TokenEquals(scene, "HOME")) {
         active_scene_ = "home";
         state_.occupancy_known = true;
@@ -868,6 +953,11 @@ EnvironmentSample SmartHomeController::GetLastSample() const {
     return last_sample_;
 }
 
+EnvironmentSample SmartHomeController::GetLastSensorSample() const {
+    StateGuard guard(*this);
+    return last_sensor_sample_;
+}
+
 bool SmartHomeController::HandleDeviceAction(const char* target, const char* action) {
     StateGuard guard(*this);
     if (!TokenEquals(action, "TOGGLE")) {
@@ -924,130 +1014,83 @@ bool SmartHomeController::HandleEnvironmentAction(const char* target, const char
 
 void SmartHomeController::UpdateEnvironment(const EnvironmentSample& sample) {
     StateGuard guard(*this);
+    EnvironmentSample sensor_sample = BuildDecoratedSample(
+        SanitizeEnvironmentSample(sample), "sensor");
+    if (sensor_sample.sample_time_ms == 0) {
+        sensor_sample.sample_time_ms = NowMs();
+    }
+    last_sensor_sample_ = sensor_sample;
+    has_last_sensor_sample_ = true;
     if (state_.manual_environment_mode) {
-        ApplyEnvironmentSample(manual_sample_);
         return;
     }
-    ApplyEnvironmentSample(BuildDecoratedSample(sample, "sensor"));
+    ApplyEnvironmentSample(sensor_sample);
 }
 
 void SmartHomeController::EvaluateAutoMode(const EnvironmentSample& sample) {
-    if (state_.occupancy_known && !state_.occupied) {
+    SmartHomePolicyInput input = {};
+    input.sample.has_temperature = sample.has_temperature;
+    input.sample.temperature_c = sample.temperature_c;
+    input.sample.has_humidity = sample.has_humidity;
+    input.sample.humidity_percent = sample.humidity_percent;
+    input.sample.has_air_quality = sample.has_mq135_raw;
+    input.sample.mq135_raw = sample.mq135_raw;
+    input.sample.air_score = sample.air_score;
+    input.rule.enabled = automation_rule_.enabled;
+    input.rule.air_score_below = automation_rule_.air_score_below;
+    input.rule.humidity_below = automation_rule_.humidity_below;
+    input.rule.temperature_above = automation_rule_.temperature_above;
+    input.rule.purifier_level = automation_rule_.purifier_level;
+    input.rule.fresh_air_level = automation_rule_.fresh_air_level;
+    input.rule.humidifier_level = automation_rule_.humidifier_level;
+    input.occupancy_known = state_.occupancy_known;
+    input.occupied = state_.occupied;
+    input.current_purifier_level = state_.purifier_level;
+    input.current_fresh_air_level = state_.fresh_air_level;
+    input.current_humidifier_level = state_.humidifier_level;
+    input.purifier_override_active = OverrideActive(purifier_override_until_ms_);
+    input.fresh_air_override_active = OverrideActive(fresh_air_override_until_ms_);
+    input.humidifier_override_active = OverrideActive(humidifier_override_until_ms_);
+
+    const SmartHomePolicyOutput output = EvaluateSmartHomeAutoPolicy(input);
+    if (output.no_occupancy_shutdown) {
         ShutdownForNoOccupancy();
         return;
     }
-
-    if (sample.has_humidity && !OverrideActive(humidifier_override_until_ms_)) {
-        if (sample.humidity_percent < 40.0f) {
-            state_.humidifier_level = 2;
-        } else if (sample.humidity_percent > 70.0f) {
-            state_.humidifier_level = 0;
-        }
-    }
-
-    if (sample.has_mq135_raw && !OverrideActive(purifier_override_until_ms_)) {
-        if (sample.mq135_raw >= 2000) {
-            state_.purifier_level = 3;
-        } else if (sample.mq135_raw >= 1000) {
-            state_.purifier_level = std::max(state_.purifier_level, 2);
-        } else {
-            state_.purifier_level = 0;
-        }
-    }
-
-    if (!OverrideActive(fresh_air_override_until_ms_)) {
-        if (sample.has_mq135_raw && sample.mq135_raw >= 2000) {
-            state_.fresh_air_level = std::max(state_.fresh_air_level, 2);
-        }
-        if (sample.has_temperature && sample.temperature_c > 30.0f) {
-            state_.fresh_air_level = std::max(state_.fresh_air_level, 2);
-        } else if (sample.has_mq135_raw && sample.mq135_raw < 1000) {
-            state_.fresh_air_level = 0;
-        }
-    }
-
-    EvaluateAutomationRule(sample);
-    EvaluateLighting();
-    ApplyPurifier();
-    ApplyHumidifier();
-    ApplyFreshAir();
-}
-
-void SmartHomeController::EvaluateAutomationRule(const EnvironmentSample& sample) {
-    if (!automation_rule_.enabled) {
-        automation_rule_active_ = false;
-        return;
-    }
-
-    bool triggered = false;
-    if (sample.has_mq135_raw && sample.air_score < automation_rule_.air_score_below) {
-        triggered = true;
-        if (!OverrideActive(purifier_override_until_ms_)) {
-            state_.purifier_level = std::max(state_.purifier_level, automation_rule_.purifier_level);
-        }
-        if (!OverrideActive(fresh_air_override_until_ms_)) {
-            state_.fresh_air_level = std::max(state_.fresh_air_level, automation_rule_.fresh_air_level);
-        }
-    }
-    if (sample.has_humidity && sample.humidity_percent < automation_rule_.humidity_below) {
-        triggered = true;
-        if (!OverrideActive(humidifier_override_until_ms_)) {
-            state_.humidifier_level = std::max(state_.humidifier_level, automation_rule_.humidifier_level);
-        }
-    }
-    if (sample.has_temperature && sample.temperature_c > automation_rule_.temperature_above) {
-        triggered = true;
-        if (!OverrideActive(fresh_air_override_until_ms_)) {
-            state_.fresh_air_level = std::max(state_.fresh_air_level, automation_rule_.fresh_air_level);
-        }
-    }
-
-    if (triggered != automation_rule_active_) {
-        automation_rule_active_ = triggered;
+    ApplyTargetLevels(output.purifier_level, output.fresh_air_level, output.humidifier_level);
+    if (automation_rule_active_ != output.automation_rule_active) {
+        automation_rule_active_ = output.automation_rule_active;
         RecordEvent("automation", "system",
-            triggered ? "环境达到阈值，自动化规则已执行" : "环境恢复，自动化规则已解除");
+            automation_rule_active_ ? "环境达到阈值，自动化规则已执行" : "环境恢复，自动化规则已解除");
     }
+    EvaluateLighting();
 }
 
 void SmartHomeController::EvaluateEcoMode(const EnvironmentSample& sample) {
-    if (state_.occupancy_known && !state_.occupied) {
+    SmartHomePolicyInput input = {};
+    input.sample.has_temperature = sample.has_temperature;
+    input.sample.temperature_c = sample.temperature_c;
+    input.sample.has_humidity = sample.has_humidity;
+    input.sample.humidity_percent = sample.humidity_percent;
+    input.sample.has_air_quality = sample.has_mq135_raw;
+    input.sample.mq135_raw = sample.mq135_raw;
+    input.sample.air_score = sample.air_score;
+    input.occupancy_known = state_.occupancy_known;
+    input.occupied = state_.occupied;
+    input.current_purifier_level = state_.purifier_level;
+    input.current_fresh_air_level = state_.fresh_air_level;
+    input.current_humidifier_level = state_.humidifier_level;
+    input.purifier_override_active = OverrideActive(purifier_override_until_ms_);
+    input.fresh_air_override_active = OverrideActive(fresh_air_override_until_ms_);
+    input.humidifier_override_active = OverrideActive(humidifier_override_until_ms_);
+
+    const SmartHomePolicyOutput output = EvaluateSmartHomeEcoPolicy(input);
+    if (output.no_occupancy_shutdown) {
         ShutdownForNoOccupancy();
         return;
     }
-
-    int purifier_level = 0;
-    int fresh_air_level = 0;
-    int humidifier_level = 0;
-
-    if (sample.has_mq135_raw) {
-        if (sample.mq135_raw >= 2000 || sample.air_score < 40) {
-            purifier_level = 2;
-            fresh_air_level = 1;
-        } else if (sample.mq135_raw >= 1000 || sample.air_score < 65) {
-            purifier_level = 1;
-        }
-    }
-
-    if (sample.has_humidity && sample.humidity_percent < 35.0f) {
-        humidifier_level = 1;
-    }
-    if (sample.has_temperature && sample.temperature_c > 30.0f) {
-        fresh_air_level = std::max(fresh_air_level, 1);
-    }
-
-    if (!OverrideActive(purifier_override_until_ms_)) {
-        state_.purifier_level = purifier_level;
-    }
-    if (!OverrideActive(fresh_air_override_until_ms_)) {
-        state_.fresh_air_level = fresh_air_level;
-    }
-    if (!OverrideActive(humidifier_override_until_ms_)) {
-        state_.humidifier_level = humidifier_level;
-    }
+    ApplyTargetLevels(output.purifier_level, output.fresh_air_level, output.humidifier_level);
     EvaluateLighting();
-    ApplyPurifier();
-    ApplyHumidifier();
-    ApplyFreshAir();
 }
 
 void SmartHomeController::EvaluateLighting() {
@@ -1079,13 +1122,19 @@ void SmartHomeController::EvaluateLighting() {
 }
 
 void SmartHomeController::ShutdownForNoOccupancy() {
+    const bool had_active_output = state_.purifier_level > 0 || state_.fresh_air_level > 0 ||
+                                   state_.humidifier_level > 0 || state_.light_on;
     ClearManualOverrides();
-    state_.purifier_level = 0;
-    state_.fresh_air_level = 0;
-    state_.humidifier_level = 0;
+    automation_rule_active_ = false;
+    ApplyTargetLevels(0, 0, 0);
+    const bool light_changed = state_.light_on;
     state_.light_on = false;
-    ESP_LOGI(TAG, "No occupancy: all controllable devices are off");
-    ApplyAll();
+    if (light_changed) {
+        ApplyLight();
+    }
+    if (had_active_output) {
+        ESP_LOGI(TAG, "No occupancy: all controllable devices are off");
+    }
 }
 
 void SmartHomeController::SetAlarm(const char* reason) {
@@ -1157,15 +1206,21 @@ void SmartHomeController::EvaluateEnvironmentAlarm(const EnvironmentSample& prev
 
 void SmartHomeController::ApplyEnvironmentSample(const EnvironmentSample& sample) {
     EnvironmentSample decorated = BuildDecoratedSample(
-        sample, state_.manual_environment_mode ? "manual" : sample.environment_source);
+        SanitizeEnvironmentSample(sample), sample.environment_source);
     if (decorated.sample_time_ms == 0) {
         decorated.sample_time_ms = NowMs();
     }
-    if (has_alarm_baseline_) {
-        EvaluateEnvironmentAlarm(last_sample_, decorated);
+    if (!decorated.manual_environment_mode) {
+        if (has_alarm_baseline_) {
+            EvaluateEnvironmentAlarm(last_sample_, decorated);
+        }
+        has_alarm_baseline_ = true;
+    } else {
+        has_alarm_baseline_ = false;
+        alarm_candidate_type_.clear();
+        alarm_candidate_count_ = 0;
     }
     last_sample_ = decorated;
-    has_alarm_baseline_ = true;
     RecordEnvironmentSample(last_sample_);
     if (state_.eco_mode) {
         EvaluateEcoMode(last_sample_);
@@ -1180,23 +1235,6 @@ void SmartHomeController::RecordEnvironmentSample(const EnvironmentSample& sampl
     if (history_count_ < kHistorySize) {
         ++history_count_;
     }
-    MaybeSendCurvePoint(kAirCurveId, 0, sample.air_score);
-    if (sample.has_temperature) {
-        MaybeSendCurvePoint(kCurveIdUnavailable, 0, static_cast<int>(sample.temperature_c));
-    }
-    if (sample.has_humidity) {
-        MaybeSendCurvePoint(kCurveIdUnavailable, 0, static_cast<int>(sample.humidity_percent));
-    }
-}
-
-void SmartHomeController::MaybeSendCurvePoint(int curve_id, int channel, int value) {
-    if (curve_id < 0 || serial_hmi_ == nullptr) {
-        return;
-    }
-    value = std::max(0, std::min(100, value));
-    char command[32] = {};
-    std::snprintf(command, sizeof(command), "add %d,%d,%d", curve_id, channel, value);
-    serial_hmi_->SendCommand(command);
 }
 
 cJSON* SmartHomeController::BuildStateJson() const {
@@ -1361,6 +1399,58 @@ cJSON* SmartHomeController::BuildHealthJson() const {
     return json;
 }
 
+cJSON* SmartHomeController::BuildSummaryJson() const {
+    StateGuard guard(*this);
+    cJSON* json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "environment_source", last_sample_.environment_source);
+    cJSON_AddBoolToObject(json, "has_temperature", last_sample_.has_temperature);
+    cJSON_AddNumberToObject(json, "temperature_c", last_sample_.temperature_c);
+    cJSON_AddBoolToObject(json, "has_humidity", last_sample_.has_humidity);
+    cJSON_AddNumberToObject(json, "humidity_percent", last_sample_.humidity_percent);
+    cJSON_AddBoolToObject(json, "has_air_quality", last_sample_.has_mq135_raw);
+    cJSON_AddNumberToObject(json, "air_score", last_sample_.air_score);
+    cJSON_AddStringToObject(json, "air_state", AirStateFromScore(last_sample_.air_score));
+    cJSON_AddStringToObject(json, "comfort", last_sample_.comfort);
+    cJSON_AddStringToObject(json, "advice", last_sample_.advice);
+    cJSON_AddNumberToObject(json, "purifier_level", state_.purifier_level);
+    cJSON_AddNumberToObject(json, "fresh_air_level", state_.fresh_air_level);
+    cJSON_AddNumberToObject(json, "humidifier_level", state_.humidifier_level);
+    cJSON_AddBoolToObject(json, "light_on", state_.light_on);
+    cJSON_AddBoolToObject(json, "auto_mode", state_.auto_mode);
+    cJSON_AddBoolToObject(json, "eco_mode", state_.eco_mode);
+    cJSON_AddStringToObject(json, "active_scene", active_scene_.c_str());
+    cJSON_AddBoolToObject(json, "occupied", state_.occupied);
+    cJSON_AddBoolToObject(json, "occupancy_known", state_.occupancy_known);
+    cJSON_AddBoolToObject(json, "alarm_active", state_.alarm_active);
+
+    char summary[320] = {};
+    if (last_sample_.has_temperature && last_sample_.has_humidity &&
+        last_sample_.has_mq135_raw) {
+        std::snprintf(summary, sizeof(summary),
+            "当前温度%.1f摄氏度，湿度%.1f%%，空气评分%d；净化%d档，新风%d档，加湿%d档；%s",
+            last_sample_.temperature_c, last_sample_.humidity_percent, last_sample_.air_score,
+            state_.purifier_level, state_.fresh_air_level, state_.humidifier_level,
+            last_sample_.advice);
+    } else {
+        std::snprintf(summary, sizeof(summary),
+            "部分环境传感器暂时无有效数据；净化%d档，新风%d档，加湿%d档；%s",
+            state_.purifier_level, state_.fresh_air_level, state_.humidifier_level,
+            last_sample_.advice);
+    }
+    cJSON_AddStringToObject(json, "summary", summary);
+    return json;
+}
+
+cJSON* SmartHomeController::BuildMcpResponse(bool ok, const char* action, const char* message,
+                                             cJSON* data) const {
+    cJSON* response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "ok", ok);
+    cJSON_AddStringToObject(response, "action", action != nullptr ? action : "unknown");
+    cJSON_AddStringToObject(response, "message", message != nullptr ? message : "");
+    cJSON_AddItemToObject(response, "data", data != nullptr ? data : cJSON_CreateObject());
+    return response;
+}
+
 void SmartHomeController::RegisterMcpTools() {
     auto& mcp_server = McpServer::GetInstance();
 
@@ -1368,7 +1458,21 @@ void SmartHomeController::RegisterMcpTools() {
         "Get smart-home state, sensor/manual environment values, comfort description, and advice.",
         PropertyList(),
         [this](const PropertyList&) -> ReturnValue {
-            return BuildStateJson();
+            return BuildMcpResponse(true, "get_state", "已读取当前家居状态", BuildStateJson());
+        });
+
+    mcp_server.AddTool("self.home.get_summary",
+        "获取适合语音播报的室内环境、设备档位和当前模式摘要。",
+        PropertyList(),
+        [this](const PropertyList&) -> ReturnValue {
+            return BuildMcpResponse(true, "get_summary", "已生成当前环境摘要", BuildSummaryJson());
+        });
+
+    mcp_server.AddTool("self.home.get_health",
+        "检查网络、串口屏、温湿度、空气质量、光照和雷达是否在线或数据过期。",
+        PropertyList(),
+        [this](const PropertyList&) -> ReturnValue {
+            return BuildMcpResponse(true, "get_health", "已完成设备健康检查", BuildHealthJson());
         });
 
     mcp_server.AddTool("self.home.set_purifier",
@@ -1379,7 +1483,7 @@ void SmartHomeController::RegisterMcpTools() {
         }),
         [this](const PropertyList& properties) -> ReturnValue {
             SetPurifier(properties["power"].value<bool>(), properties["level"].value<int>());
-            return true;
+            return BuildMcpResponse(true, "set_purifier", "净化器状态已更新", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.set_fresh_air",
@@ -1390,7 +1494,7 @@ void SmartHomeController::RegisterMcpTools() {
         }),
         [this](const PropertyList& properties) -> ReturnValue {
             SetFreshAir(properties["power"].value<bool>(), properties["level"].value<int>());
-            return true;
+            return BuildMcpResponse(true, "set_fresh_air", "新风状态已更新", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.set_humidifier",
@@ -1401,7 +1505,7 @@ void SmartHomeController::RegisterMcpTools() {
         }),
         [this](const PropertyList& properties) -> ReturnValue {
             SetHumidifier(properties["power"].value<bool>(), properties["level"].value<int>());
-            return true;
+            return BuildMcpResponse(true, "set_humidifier", "加湿器状态已更新", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.set_auto",
@@ -1411,7 +1515,7 @@ void SmartHomeController::RegisterMcpTools() {
         }),
         [this](const PropertyList& properties) -> ReturnValue {
             SetAutoMode(properties["power"].value<bool>());
-            return true;
+            return BuildMcpResponse(true, "set_auto", "自动模式状态已更新", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.set_eco",
@@ -1421,7 +1525,7 @@ void SmartHomeController::RegisterMcpTools() {
         }),
         [this](const PropertyList& properties) -> ReturnValue {
             SetEcoMode(properties["power"].value<bool>());
-            return true;
+            return BuildMcpResponse(true, "set_eco", "节能模式状态已更新", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.set_light",
@@ -1431,9 +1535,10 @@ void SmartHomeController::RegisterMcpTools() {
         }),
         [this](const PropertyList& properties) -> ReturnValue {
             SetLight(properties["power"].value<bool>());
-            return BuildStateJson();
+            return BuildMcpResponse(true, "set_light", "灯光状态已更新", BuildStateJson());
         });
 
+#if SMART_HOME_ENABLE_DEBUG_MCP_TOOLS
     mcp_server.AddTool("self.home.update_context",
         "更新雷达占用状态和环境亮度，用于硬件接入前联调。occupied 表示有人，ambient_light_percent 为0到100，越小越暗。",
         PropertyList({
@@ -1443,32 +1548,27 @@ void SmartHomeController::RegisterMcpTools() {
         [this](const PropertyList& properties) -> ReturnValue {
             UpdatePresence(properties["occupied"].value<bool>());
             UpdateAmbientLight(static_cast<float>(properties["ambient_light_percent"].value<int>()));
-            return BuildStateJson();
+            return BuildMcpResponse(true, "update_context", "调试上下文已更新", BuildStateJson());
         });
+#endif
 
     mcp_server.AddTool("self.home.acknowledge_alarm",
         "确认并清除当前环境突变报警。",
         PropertyList(),
         [this](const PropertyList&) -> ReturnValue {
             AcknowledgeAlarm();
-            return BuildStateJson();
+            return BuildMcpResponse(true, "acknowledge_alarm", "当前告警已确认", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.get_environment_briefing",
         "获取适合语音播报的室内环境摘要。",
         PropertyList(),
         [this](const PropertyList&) -> ReturnValue {
-            cJSON* json = BuildStateJson();
-            const EnvironmentSample sample = GetLastSample();
-            char briefing[256] = {};
-            std::snprintf(briefing, sizeof(briefing),
-                          "temperature %.1f C, humidity %.1f percent, air score %d, comfort %s, advice %s",
-                          sample.temperature_c, sample.humidity_percent,
-                          sample.air_score, sample.comfort, sample.advice);
-            cJSON_AddStringToObject(json, "briefing", briefing);
-            return json;
+            return BuildMcpResponse(true, "get_environment_briefing",
+                                    "已生成语音播报内容", BuildSummaryJson());
         });
 
+#if SMART_HOME_ENABLE_DEBUG_MCP_TOOLS
     mcp_server.AddTool("self.home.set_manual_environment",
         "设置手动模拟环境数据，用于无法制造真实高温、干燥或污染环境时测试自动模式。参数为整数，temperature_c 摄氏度，humidity_percent 百分比，air_score 0-100。",
         PropertyList({
@@ -1481,12 +1581,14 @@ void SmartHomeController::RegisterMcpTools() {
             const bool enabled = properties["enabled"].value<bool>();
             if (!enabled) {
                 SetManualEnvironmentMode(false);
-                return BuildStateJson();
+                return BuildMcpResponse(true, "set_manual_environment",
+                                        "已恢复真实传感器数据", BuildStateJson());
             }
             SetManualEnvironment(static_cast<float>(properties["temperature_c"].value<int>()),
                                  static_cast<float>(properties["humidity_percent"].value<int>()),
                                  properties["air_score"].value<int>());
-            return BuildStateJson();
+            return BuildMcpResponse(true, "set_manual_environment",
+                                    "手动环境数据已更新", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.set_environment_preset",
@@ -1497,9 +1599,26 @@ void SmartHomeController::RegisterMcpTools() {
         [this](const PropertyList& properties) -> ReturnValue {
             const auto preset = properties["preset"].value<std::string>();
             if (!SetEnvironmentPreset(preset.c_str())) {
-                return false;
+                return BuildMcpResponse(false, "set_environment_preset",
+                                        "未知环境预设，可选 GOOD、HOT、DRY、WET、POLLUTED");
             }
-            return BuildStateJson();
+            return BuildMcpResponse(true, "set_environment_preset",
+                                    "环境预设已应用", BuildStateJson());
+        });
+#endif
+
+    mcp_server.AddTool("self.home.apply_scene",
+        "执行家居场景。scene 可选 HOME、AWAY、SLEEP、VENTILATE、CLEAN。",
+        PropertyList({
+            Property("scene", kPropertyTypeString),
+        }),
+        [this](const PropertyList& properties) -> ReturnValue {
+            const auto scene = properties["scene"].value<std::string>();
+            if (!ApplyScene(scene.c_str())) {
+                return BuildMcpResponse(false, "apply_scene",
+                                        "未知场景，可选 HOME、AWAY、SLEEP、VENTILATE、CLEAN");
+            }
+            return BuildMcpResponse(true, "apply_scene", "家居场景已执行", BuildStateJson());
         });
 
     mcp_server.AddTool("self.home.get_advice",
@@ -1507,12 +1626,12 @@ void SmartHomeController::RegisterMcpTools() {
         PropertyList(),
         [this](const PropertyList&) -> ReturnValue {
             StateGuard guard(*this);
-            cJSON* json = cJSON_CreateObject();
-            cJSON_AddStringToObject(json, "comfort", last_sample_.comfort);
-            cJSON_AddStringToObject(json, "advice", last_sample_.advice);
-            cJSON_AddStringToObject(json, "environment_source", last_sample_.environment_source);
-            cJSON_AddBoolToObject(json, "manual_environment_mode", state_.manual_environment_mode);
-            return json;
+            cJSON* data = cJSON_CreateObject();
+            cJSON_AddStringToObject(data, "comfort", last_sample_.comfort);
+            cJSON_AddStringToObject(data, "advice", last_sample_.advice);
+            cJSON_AddStringToObject(data, "environment_source", last_sample_.environment_source);
+            cJSON_AddBoolToObject(data, "manual_environment_mode", state_.manual_environment_mode);
+            return BuildMcpResponse(true, "get_advice", "已读取当前环境建议", data);
         });
 }
 

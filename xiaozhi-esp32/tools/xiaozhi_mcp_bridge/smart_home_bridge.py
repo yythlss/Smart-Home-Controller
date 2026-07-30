@@ -1,4 +1,4 @@
-"""Local MCP bridge that forwards Xiaozhi tool calls to the ESP32 HTTP API.
+"""Xiaozhi MCP bridge for external information and optional ESP32 compatibility.
 
 Run this file through the Xiaozhi mcp_pipe.py bridge from:
 https://github.com/78/mcp-calculator
@@ -7,7 +7,10 @@ https://github.com/78/mcp-calculator
 from __future__ import annotations
 
 import json
+import logging
 import os
+import sys
+from functools import wraps
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -34,13 +37,78 @@ class _MissingFastMcp:
         raise RuntimeError("Python package 'mcp' is required. Run: pip install -r tools/xiaozhi_mcp_bridge/requirements.txt")
 
 
-mcp = FastMCP("xiaozhi-smart-home") if FastMCP else _MissingFastMcp("xiaozhi-smart-home")
+logger = logging.getLogger("xiaozhi_mcp_bridge")
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+log_level = os.environ.get("XIAOZHI_MCP_LOG_LEVEL", "INFO").strip().upper()
+logger.setLevel(getattr(logging, log_level, logging.INFO))
+
+
+class BridgeError(RuntimeError):
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.details = details or {}
+
+
+def _bridge_mode() -> str:
+    mode = os.environ.get("XIAOZHI_MCP_BRIDGE_MODE", "external").strip().lower()
+    if mode not in {"external", "full"}:
+        logger.warning("Unknown bridge mode %r; using external", mode)
+        return "external"
+    return mode
+
+
+mcp = FastMCP("xiaozhi-external-services") if FastMCP else _MissingFastMcp("xiaozhi-external-services")
+REGISTERED_TOOL_NAMES: list[str] = []
+
+
+def _error_result(tool_name: str, error: BridgeError) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "ok": False,
+        "tool": tool_name,
+        "error": {
+            "code": error.code,
+            "message": error.message,
+        },
+    }
+    if error.details:
+        result["error"]["details"] = error.details
+    return result
+
+
+def _tool(*, compatibility: bool = False):
+    def decorator(func):
+        @wraps(func)
+        def safe_tool(*args, **kwargs):
+            logger.info("tool_call name=%s", func.__name__)
+            try:
+                return func(*args, **kwargs)
+            except BridgeError as exc:
+                logger.warning("tool_error name=%s code=%s message=%s",
+                               func.__name__, exc.code, exc.message)
+                return _error_result(func.__name__, exc)
+            except Exception as exc:  # Keep stdio MCP alive after one failed dependency call.
+                logger.exception("tool_error name=%s code=internal_error", func.__name__)
+                return _error_result(func.__name__, BridgeError(
+                    "internal_error", "Bridge tool failed", {"reason": str(exc)}))
+
+        if not compatibility or _bridge_mode() == "full":
+            REGISTERED_TOOL_NAMES.append(func.__name__)
+            return mcp.tool()(safe_tool)
+        return safe_tool
+
+    return decorator
 
 
 def _base_url() -> str:
     base_url = os.environ.get("ESP32_BASE_URL", "").strip()
     if not base_url:
-        raise RuntimeError("ESP32_BASE_URL is required, for example http://192.168.1.23:8080")
+        raise BridgeError("config_missing",
+                          "ESP32_BASE_URL is required for indoor data compatibility")
     if not base_url.startswith(("http://", "https://")):
         base_url = f"http://{base_url}"
     return base_url.rstrip("/")
@@ -72,13 +140,25 @@ def _request_json(path: str, method: str = "GET", payload: dict[str, Any] | None
             raw = response.read()
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"ESP32 HTTP {exc.code}: {detail}") from exc
+        raise BridgeError("esp32_http_error", f"ESP32 HTTP request failed with {exc.code}", {
+            "status": exc.code,
+            "path": path,
+            "detail": detail[:512],
+        }) from exc
     except URLError as exc:
-        raise RuntimeError(f"Cannot reach ESP32 HTTP API at {url}: {exc.reason}") from exc
+        raise BridgeError("esp32_unreachable", "Cannot reach ESP32 HTTP API", {
+            "path": path,
+            "reason": str(exc.reason),
+        }) from exc
 
     if not raw:
         return {}
-    return json.loads(raw.decode("utf-8"))
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BridgeError("esp32_invalid_response", "ESP32 returned invalid JSON", {
+            "path": path,
+        }) from exc
 
 
 def _request_external_text(url: str) -> str:
@@ -90,13 +170,24 @@ def _request_external_text(url: str) -> str:
         with urlopen(request, timeout=10.0) as response:
             return response.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
-        raise RuntimeError(f"External service HTTP {exc.code}: {url}") from exc
+        raise BridgeError("external_http_error",
+                          f"External service returned HTTP {exc.code}", {
+                              "status": exc.code,
+                              "url": url,
+                          }) from exc
     except URLError as exc:
-        raise RuntimeError(f"Cannot reach external service {url}: {exc.reason}") from exc
+        raise BridgeError("external_unreachable", "Cannot reach external service", {
+            "url": url,
+            "reason": str(exc.reason),
+        }) from exc
 
 
 def _request_external_json(url: str) -> dict[str, Any]:
-    return json.loads(_request_external_text(url))
+    try:
+        return json.loads(_request_external_text(url))
+    except json.JSONDecodeError as exc:
+        raise BridgeError("external_invalid_response",
+                          "External service returned invalid JSON", {"url": url}) from exc
 
 
 def _weather_code_text(code: int) -> str:
@@ -121,6 +212,17 @@ def _first(values: Any, default: Any = None) -> Any:
     return values[0] if isinstance(values, list) and values else default
 
 
+def _require_tool_data(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("ok") is not False or not isinstance(result.get("error"), dict):
+        return result
+    error = result["error"]
+    raise BridgeError(
+        f"dependency_{error.get('code', 'error')}",
+        str(error.get("message", "Dependent bridge tool failed")),
+        {"dependency": result.get("tool", "unknown")},
+    )
+
+
 def _level_value(power: bool, level: int) -> int:
     if not power:
         return 0
@@ -143,63 +245,63 @@ def _set_mode(mode: str, power: bool) -> dict[str, Any]:
     })
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_get_state() -> dict[str, Any]:
     """获取当前空气状态和智能家居设备状态。"""
 
     return _request_json("/api/state")
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_get_health() -> dict[str, Any]:
     """获取固件版本、运行时间、内存、Wi-Fi 和传感器健康状态。"""
 
     return _request_json("/api/health")
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_purifier(power: bool, level: int = 1) -> dict[str, Any]:
     """控制净化器红色 LED。level 为 0-3，0 表示关闭。"""
 
     return _set_device("purifier", power, level)
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_fresh_air(power: bool, level: int = 1) -> dict[str, Any]:
     """控制新风/风扇舵机。level 为 0-3，0 表示关闭。"""
 
     return _set_device("fresh_air", power, level)
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_humidifier(power: bool, level: int = 1) -> dict[str, Any]:
     """控制加湿器蓝色 LED。level 为 0-3，0 表示关闭。"""
 
     return _set_device("humidifier", power, level)
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_light(power: bool) -> dict[str, Any]:
     """控制照明灯开关。"""
 
     return _set_device("light", power, 1)
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_auto(power: bool) -> dict[str, Any]:
     """开启或关闭自动模式。开启自动模式会退出节能模式。"""
 
     return _set_mode("auto", power)
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_eco(power: bool) -> dict[str, Any]:
     """开启或关闭节能模式。节能模式按环境使用较低档位，无人时关闭设备。"""
 
     return _set_mode("eco", power)
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_update_context(occupied: bool, ambient_light_percent: float) -> dict[str, Any]:
     """更新雷达占用状态和环境亮度，用于新硬件接入前联调。"""
 
@@ -209,14 +311,14 @@ def home_update_context(occupied: bool, ambient_light_percent: float) -> dict[st
     })
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_acknowledge_alarm() -> dict[str, Any]:
     """确认并清除环境突变报警。"""
 
     return _request_json("/api/alarm/ack", "POST", {})
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_environment_preset(preset: str) -> dict[str, Any]:
     """设置手动环境预设。preset 可用 GOOD、HOT、DRY、POLLUTED。"""
 
@@ -226,7 +328,7 @@ def home_set_environment_preset(preset: str) -> dict[str, Any]:
     })
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_set_manual_environment(temperature_c: float, humidity_percent: float, air_score: int) -> dict[str, Any]:
     """手动输入环境数据，用于测试自动模式和环境建议。"""
 
@@ -238,7 +340,7 @@ def home_set_manual_environment(temperature_c: float, humidity_percent: float, a
     })
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_disable_manual_environment() -> dict[str, Any]:
     """退出手动环境模式，恢复真实传感器数据。"""
 
@@ -247,11 +349,11 @@ def home_disable_manual_environment() -> dict[str, Any]:
     })
 
 
-@mcp.tool()
+@_tool(compatibility=True)
 def home_get_advice() -> dict[str, Any]:
     """获取当前舒适度和环境建议。"""
 
-    state = home_get_state()
+    state = _require_tool_data(home_get_state())
     return {
         "air_state": state.get("air_state"),
         "comfort": state.get("comfort"),
@@ -264,13 +366,13 @@ def home_get_advice() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@_tool()
 def home_get_weather(city: str) -> dict[str, Any]:
     """查询指定城市当前天气和今日温度、降雨概率，不需要天气 API 密钥。"""
 
     city = city.strip()
     if not city:
-        raise RuntimeError("city is required")
+        raise BridgeError("invalid_argument", "city is required")
 
     geocoding_url = "https://geocoding-api.open-meteo.com/v1/search?" + urlencode({
         "name": city,
@@ -281,7 +383,7 @@ def home_get_weather(city: str) -> dict[str, Any]:
     geocoding = _request_external_json(geocoding_url)
     results = geocoding.get("results") or []
     if not results:
-        raise RuntimeError(f"Weather city not found: {city}")
+        raise BridgeError("not_found", f"Weather city not found: {city}")
 
     location = results[0]
     forecast_url = "https://api.open-meteo.com/v1/forecast?" + urlencode({
@@ -311,16 +413,22 @@ def home_get_weather(city: str) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@_tool()
 def home_get_news(limit: int = 5) -> dict[str, Any]:
     """读取 NEWS_RSS_URL 配置的新闻 RSS 标题，供 AI 简短播报。"""
 
     rss_url = os.environ.get("NEWS_RSS_URL", "").strip()
     if not rss_url:
-        raise RuntimeError("NEWS_RSS_URL is required; set it to a trusted RSS feed URL")
+        raise BridgeError("config_missing",
+                          "NEWS_RSS_URL is required; set it to a trusted RSS feed URL")
     limit = max(1, min(10, int(limit)))
 
-    root = ElementTree.fromstring(_request_external_text(rss_url))
+    try:
+        root = ElementTree.fromstring(_request_external_text(rss_url))
+    except ElementTree.ParseError as exc:
+        raise BridgeError("external_invalid_response", "News service returned invalid XML", {
+            "url": rss_url,
+        }) from exc
     items: list[dict[str, str]] = []
     for item in root.findall(".//item"):
         title = (item.findtext("title") or "").strip()
@@ -344,12 +452,12 @@ def home_get_news(limit: int = 5) -> dict[str, Any]:
     return {"count": len(items), "items": items, "source": rss_url}
 
 
-@mcp.tool()
+@_tool()
 def home_get_combined_advice(city: str) -> dict[str, Any]:
     """结合室内环境和指定城市天气生成可直接语音播报的生活建议。"""
 
-    indoor = home_get_state()
-    weather = home_get_weather(city)
+    indoor = _require_tool_data(home_get_state())
+    weather = _require_tool_data(home_get_weather(city))
     advice: list[str] = []
 
     air_score = indoor.get("air_score")

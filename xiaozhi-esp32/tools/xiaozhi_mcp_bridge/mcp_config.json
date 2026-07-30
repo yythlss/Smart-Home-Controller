@@ -1,13 +1,15 @@
 {
   "mcpServers": {
-    "xiaozhi-smart-home": {
+    "xiaozhi-external-services": {
       "command": "python",
       "args": [
         "tools/xiaozhi_mcp_bridge/smart_home_bridge.py"
       ],
       "env": {
+        "XIAOZHI_MCP_BRIDGE_MODE": "external",
         "ESP32_BASE_URL": "http://192.168.1.23:8080",
-        "ESP32_API_TOKEN": ""
+        "ESP32_API_TOKEN": "",
+        "NEWS_RSS_URL": "https://example.com/trusted-news.xml"
       }
     }
   }

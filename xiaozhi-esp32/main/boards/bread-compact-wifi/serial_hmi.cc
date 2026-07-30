@@ -84,7 +84,7 @@ int PageIdFromName(const char* page_name) {
 
 SerialHmi::SerialHmi(uart_port_t uart_port, gpio_num_t tx_pin, gpio_num_t rx_pin, int baud_rate)
     : uart_port_(uart_port), tx_pin_(tx_pin), rx_pin_(rx_pin), baud_rate_(baud_rate) {
-    tx_mutex_ = xSemaphoreCreateMutex();
+    tx_mutex_ = xSemaphoreCreateRecursiveMutex();
 }
 
 SerialHmi::~SerialHmi() {
@@ -136,11 +136,24 @@ bool SerialHmi::SendCommand(const char* command) {
 
     bool locked = false;
     if (tx_mutex_ != nullptr) {
-        locked = xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(200)) == pdTRUE;
+        locked = xSemaphoreTakeRecursive(tx_mutex_, portMAX_DELAY) == pdTRUE;
         if (!locked) {
             ESP_LOGW(TAG, "Skip command because UART TX mutex timed out: %s", command);
             return false;
         }
+    }
+
+    const bool ok = SendCommandLocked(command);
+
+    if (locked) {
+        xSemaphoreGiveRecursive(tx_mutex_);
+    }
+    return ok;
+}
+
+bool SerialHmi::SendCommandLocked(const char* command) {
+    if (command == nullptr || command[0] == '\0') {
+        return false;
     }
 
     bool ok = true;
@@ -166,11 +179,23 @@ bool SerialHmi::SendCommand(const char* command) {
     }
 
     std::printf("[TJC] %s\n", command);
-
-    if (locked) {
-        xSemaphoreGive(tx_mutex_);
-    }
     return ok;
+}
+
+bool SerialHmi::BeginTxTransaction() {
+    if (tx_mutex_ == nullptr) {
+        ESP_LOGE(TAG, "UART TX mutex is unavailable");
+        return false;
+    }
+    if (xSemaphoreTakeRecursive(tx_mutex_, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to lock UART TX transaction");
+        return false;
+    }
+    return true;
+}
+
+void SerialHmi::EndTxTransaction() {
+    xSemaphoreGiveRecursive(tx_mutex_);
 }
 
 bool SerialHmi::SetText(const char* widget, const char* text) {
@@ -211,9 +236,18 @@ bool SerialHmi::ShowPage(int page_id) {
         return false;
     }
 
+    if (!BeginTxTransaction()) {
+        return false;
+    }
+
     if (page_id == current_page_id_) {
         ESP_LOGI(TAG, "Page already active: %d", page_id);
-        RefreshCurrentPage();
+        if (has_last_air_quality_data_) {
+            SendCommandLocked("ref_stop");
+            RefreshCurrentPageLocked(false);
+            SendCommandLocked("ref_star");
+        }
+        EndTxTransaction();
         return true;
     }
 
@@ -221,19 +255,25 @@ bool SerialHmi::ShowPage(int page_id) {
     if (last_page_switch_ticks_ != 0 &&
         now - last_page_switch_ticks_ < pdMS_TO_TICKS(kPageSwitchDebounceMs)) {
         ESP_LOGW(TAG, "Ignore rapid page switch: %d -> %d", current_page_id_, page_id);
+        EndTxTransaction();
         return false;
     }
 
     char command[24] = {};
     std::snprintf(command, sizeof(command), "page %d", page_id);
-    if (SendCommand(command)) {
+    const bool page_changed = SendCommandLocked(command);
+    if (page_changed) {
         current_page_id_ = page_id;
         last_page_switch_ticks_ = xTaskGetTickCount();
         vTaskDelay(pdMS_TO_TICKS(80));
-        RefreshCurrentPage();
-        return true;
+        if (has_last_air_quality_data_) {
+            SendCommandLocked("ref_stop");
+            RefreshCurrentPageLocked(true);
+            SendCommandLocked("ref_star");
+        }
     }
-    return false;
+    EndTxTransaction();
+    return page_changed;
 }
 
 bool SerialHmi::ShowNamedPage(const char* page_name) {
@@ -256,29 +296,42 @@ bool SerialHmi::ShowPreviousPage() {
 }
 
 void SerialHmi::UpdateAirQuality(const SerialHmiAirQualityData& data) {
+    if (!BeginBatchRefresh()) {
+        ESP_LOGW(TAG, "Skip HMI data refresh because UART transaction could not start");
+        return;
+    }
+
     // 缓存最新传感器数据，页面切换后可以立即刷新当前页控件。
     last_air_quality_data_ = data;
     has_last_air_quality_data_ = true;
     if (data.has_mq135_raw || data.manual_environment_mode || data.air_score > 0) {
         RecordAirCurveScore(data.air_score);
+        air_curve_point_pending_ = true;
     }
-    RefreshCurrentPage();
+    RefreshCurrentPageLocked(false);
+    EndBatchRefresh();
 }
 
-void SerialHmi::RefreshCurrentPage() {
+void SerialHmi::RefreshCurrentPage(bool page_entered) {
     if (!has_last_air_quality_data_) {
         return;
     }
 
-    BeginBatchRefresh();
+    if (!BeginBatchRefresh()) {
+        return;
+    }
+    RefreshCurrentPageLocked(page_entered);
+    EndBatchRefresh();
+}
 
+void SerialHmi::RefreshCurrentPageLocked(bool page_entered) {
     // 按当前页面定向刷新，避免给不存在于当前页的控件持续发送命令。
     switch (current_page_id_) {
         case kHomePageId:
             RefreshHomePage(last_air_quality_data_);
             break;
         case kAirDetailPageId:
-            RefreshAirDetailPage(last_air_quality_data_);
+            RefreshAirDetailPage(last_air_quality_data_, page_entered);
             break;
         case kAiSettingsPageId:
             RefreshAiSettingsPage(last_air_quality_data_);
@@ -287,15 +340,19 @@ void SerialHmi::RefreshCurrentPage() {
             break;
     }
 
-    EndBatchRefresh();
 }
 
-void SerialHmi::BeginBatchRefresh() {
-    SendCommand("ref_stop");
+bool SerialHmi::BeginBatchRefresh() {
+    if (!BeginTxTransaction()) {
+        return false;
+    }
+    SendCommandLocked("ref_stop");
+    return true;
 }
 
 void SerialHmi::EndBatchRefresh() {
-    SendCommand("ref_star");
+    SendCommandLocked("ref_star");
+    EndTxTransaction();
 }
 
 void SerialHmi::RefreshHomePage(const SerialHmiAirQualityData& data) {
@@ -333,7 +390,7 @@ void SerialHmi::RefreshHomePage(const SerialHmiAirQualityData& data) {
     SetText("t_advice", data.advice != nullptr ? data.advice : "Waiting for sensor data");
 }
 
-void SerialHmi::RefreshAirDetailPage(const SerialHmiAirQualityData& data) {
+void SerialHmi::RefreshAirDetailPage(const SerialHmiAirQualityData& data, bool page_entered) {
     char text[64] = {};
     const int score = ClampScore(data.air_score);
 
@@ -364,7 +421,15 @@ void SerialHmi::RefreshAirDetailPage(const SerialHmiAirQualityData& data) {
     SetText("t_humi_d", text);
 
     SetText("t_comfort", data.comfort != nullptr ? data.comfort : "待计算");
-    ReplayAirCurveHistory();
+    if (page_entered) {
+        ReplayAirCurveHistory();
+        air_curve_point_pending_ = false;
+    } else if (air_curve_point_pending_ && air_curve_count_ > 0) {
+        const size_t newest_index =
+            (air_curve_write_index_ + kAirCurveHistorySize - 1) % kAirCurveHistorySize;
+        AddCurvePoint(kAirCurveId, kAirCurveChannel, air_curve_scores_[newest_index]);
+        air_curve_point_pending_ = false;
+    }
 }
 
 void SerialHmi::RefreshAiSettingsPage(const SerialHmiAirQualityData& data) {

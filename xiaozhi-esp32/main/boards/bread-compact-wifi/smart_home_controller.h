@@ -141,15 +141,16 @@ public:
     SmartHomeState GetState() const;
     SmartHomeHealth GetHealth() const;
     EnvironmentSample GetLastSample() const;
+    EnvironmentSample GetLastSensorSample() const;
     cJSON* BuildStateJson() const;
     cJSON* BuildHistoryJson() const;
     cJSON* BuildHealthJson() const;
     cJSON* BuildEventsJson() const;
+    cJSON* BuildSummaryJson() const;
 
 private:
     static constexpr size_t kHistorySize = 30;
     static constexpr size_t kEventHistorySize = 32;
-    static constexpr int kCurveIdUnavailable = -1;
     static constexpr float kLightOnThresholdPercent = 25.0f;
     static constexpr float kLightOffThresholdPercent = 35.0f;
     static constexpr float kDarkThresholdPercent = kLightOnThresholdPercent;
@@ -179,6 +180,7 @@ private:
     void ApplyHumidifier();
     void ApplyFreshAir();
     void ApplyLight();
+    void ApplyTargetLevels(int purifier_level, int fresh_air_level, int humidifier_level);
     void SetLedDuty(ledc_channel_t channel, int percent);
     void SetServoAngle(int angle);
     void SetServoProfileForLevel(int level);
@@ -186,14 +188,13 @@ private:
     void EvaluateEcoMode(const EnvironmentSample& sample);
     void EvaluateLighting();
     void EvaluateEnvironmentAlarm(const EnvironmentSample& previous, const EnvironmentSample& current);
-    void EvaluateAutomationRule(const EnvironmentSample& sample);
     void ShutdownForNoOccupancy();
     void SetAlarm(const char* reason);
     void ApplyEnvironmentSample(const EnvironmentSample& sample);
+    EnvironmentSample SanitizeEnvironmentSample(EnvironmentSample sample) const;
     EnvironmentSample BuildDecoratedSample(EnvironmentSample sample, const char* source) const;
     EnvironmentSample DefaultManualSample() const;
     void RecordEnvironmentSample(const EnvironmentSample& sample);
-    void MaybeSendCurvePoint(int curve_id, int channel, int value);
     int ClampScore(int score) const;
     int EstimateMq135RawFromScore(int score) const;
     int NormalizeLevel(bool power, int level) const;
@@ -208,6 +209,8 @@ private:
     void LoadPersistentSettings();
     void PersistModes() const;
     void PersistAutomationRule() const;
+    cJSON* BuildMcpResponse(bool ok, const char* action, const char* message,
+                            cJSON* data = nullptr) const;
     void RecordEvent(const char* type, const char* source, const char* message);
     void LockState() const;
     void UnlockState() const;
@@ -219,6 +222,8 @@ private:
     SmartHomeState state_ = {};
     SmartHomeHealth health_ = {};
     EnvironmentSample last_sample_ = {};
+    EnvironmentSample last_sensor_sample_ = {};
+    bool has_last_sensor_sample_ = false;
     EnvironmentSample manual_sample_ = {};
     EnvironmentSample history_[30] = {};
     size_t history_write_index_ = 0;

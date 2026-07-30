@@ -15,6 +15,7 @@ clean.bat
 # ESP-IDF generated files and dependency caches
 **/build/
 **/build_*/
+**/build-*/
 **/managed_components/
 **/sdkconfig
 **/sdkconfig.old

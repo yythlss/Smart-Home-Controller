@@ -1,14 +1,16 @@
 # xiaozhi-esp32 当前工程交付说明
 
+> 2026-07-30 已完成控制策略、传感器状态、串口屏刷新和 AI/MCP 分工优化，最终状态见 [`phase-handoff-2026-07-30-logic-ai-optimization-final.md`](phase-handoff-2026-07-30-logic-ai-optimization-final.md)。设备端 MCP 负责家居控制，PC 桥默认只负责天气、新闻和组合建议；本次 ESP-IDF 构建与 44 项 Python 回归已通过。
+>
 > 2026-07-28 已完成多轮“只增加代码、不更换硬件”增强。稳定性内容见 [`phase-handoff-2026-07-28-software-reliability.md`](phase-handoff-2026-07-28-software-reliability.md)，小程序演示增强见 [`phase-handoff-2026-07-28-mini-program-demo-enhancements.md`](phase-handoff-2026-07-28-mini-program-demo-enhancements.md)，主看板与后台拆分见 [`phase-handoff-2026-07-28-mini-program-admin-split.md`](phase-handoff-2026-07-28-mini-program-admin-split.md)。本节更新优先于文档中较早的 HMI 外部路径和“雷达/光敏尚未接入”描述；当前 HMI 工程已保存在仓库 `hmi/`。
 
-本文档记录截至 `2026-07-19` 的当前工程状态，供交付和接续开发使用。
+本文档记录截至 `2026-07-30` 的当前工程状态，供交付和接续开发使用。
 
 ## 工程位置
 
 | 项目 | 路径/值 |
 | --- | --- |
-| ESP-IDF 工程根目录 | `E:/espwork/xiaozhi-esp32/xiaozhi-esp32` |
+| ESP-IDF 工程根目录 | `E:/espwork/Smart-Home-Controller/xiaozhi-esp32` |
 | 当前使用板型 | `CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI=y` |
 | 当前目标芯片 | `esp32s3` |
 | 当前分区表 | `partitions/v2/16m.csv` |
@@ -39,6 +41,10 @@
 - 2026-07-19 已根据实物确认光敏模块的 AO 为“遮光数值升高、照亮数值降低”，默认校准已改为 `DARK_RAW=3300`、`BRIGHT_RAW=300`，需重新烧录后验证。
 - 2026-07-28 小程序新增离线演示、雷达二维位置图、三指标趋势曲线、自定义自动化规则、五种一键场景和最近 32 条事件日志；新增 `/api/events`、`/api/automation`、`/api/scene`。
 - 2026-07-28 小程序进一步拆分为家居主看板和操作后台；主页面底部灰色小字进入后台，真实/手动传感器系统、连接、规则、日志和诊断均移至后台。
+- 2026-07-30 自动/节能逻辑已拆分为可测试的纯 C++ 策略，增加回差、手动覆盖、无人关闭和幂等硬件输出。
+- 2026-07-30 串口屏 UART 更新改为完整事务；曲线停留时只追加新点，页面和旧数据在两次采样之间保持不变。
+- 2026-07-30 设备端 MCP 统一结构化响应并新增摘要、健康检查和场景工具；调试注入工具默认隐藏。
+- 2026-07-30 PC MCP 桥默认只注册天气、新闻和组合建议，旧 HTTP 控制通过 `full` 模式保留兼容。
 - 蜂鸣器和独立 LED 灯的真实输出仍未接入，原因是供电、驱动电路和 GPIO 尚未最终确认；`light_on` 目前仅是可验证的逻辑状态。
 
 ## 当前固件能力
@@ -53,8 +59,8 @@
 - 智能家居执行器控制：`GPIO13` 净化 LED、`GPIO14` 加湿 LED、`GPIO21` 180°角度舵机扇叶。
 - 新风/风扇档位：`0` 档停在 `0°`；`1` 档 `20°-70°` 慢速摆动；`2` 档 `10°-120°` 中速摆动；`3` 档 `0°-180°` 快速摆动。
 - MCP 工具和 HTTP API 已接入同一套智能家居状态：净化、新风、加湿、自动、节能。
-- MCP 工具已补充环境能力：`self.home.set_manual_environment`、`self.home.set_environment_preset`、`self.home.get_advice`。
-- MCP 工具已补充智能上下文：`self.home.set_light`、`self.home.update_context`、`self.home.acknowledge_alarm`、`self.home.get_environment_briefing`。
+- 正常固件注册 `self.home.get_summary`、`self.home.get_health`、`self.home.apply_scene`、`self.home.get_advice` 和正式控制工具。
+- `self.home.update_context`、`self.home.set_manual_environment`、`self.home.set_environment_preset` 保留为调试能力，但默认不向 AI 注册。
 - HTTP API 已补充 `POST /api/context` 和 `POST /api/alarm/ack`，用于雷达/光敏联调和报警确认。
 - 当前 `sdkconfig` 已启用 AFE 唤醒词；本阶段没有修改该受保护配置。雷达占用由无到有时的软件回调会调用 `Application::StartListening()`。
 - HTTP API 已补充 `POST /api/environment`：支持 `{enabled:false}` 退出手动环境，支持 `temperature_c/humidity_percent/air_score` 手动输入，也支持 `preset=GOOD/HOT/DRY/POLLUTED`。
@@ -79,6 +85,7 @@
 | `main/boards/bread-compact-wifi/ld2450_protocol.h/.cc` | LD2450 目标帧校验和解析 |
 | `main/boards/bread-compact-wifi/ld2450_sensor.h/.cc` | LD2450 UART1 收包、帧缓存和诊断计数 |
 | `main/boards/bread-compact-wifi/smart_home_controller.h/.cc` | 智能家居执行器状态、PWM 输出、自动/节能模式、MCP 工具 |
+| `main/boards/bread-compact-wifi/smart_home_policy.h/.cc` | 自动/节能模式的纯 C++ 档位决策、回差和自动化规则 |
 | `main/boards/bread-compact-wifi/smart_home_http_server.h/.cc` | 局域网 HTTP API，服务小程序演示 |
 | `main/boards/bread-compact-wifi/serial_hmi_widgets.json` | HMI 页面、控件、资源和事件契约 |
 

@@ -94,4 +94,8 @@
 #define SMART_HOME_API_TOKEN ""
 #define SMART_HOME_CORS_ORIGIN "*"
 
+// Debug-only MCP tools can inject occupancy, light, and environment values.
+// Keep them disabled in normal firmware so AI only sees real home-control tools.
+#define SMART_HOME_ENABLE_DEBUG_MCP_TOOLS 0
+
 #endif // _BOARD_CONFIG_H_

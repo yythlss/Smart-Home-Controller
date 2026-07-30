@@ -93,11 +93,15 @@ private:
 
     bool ParseEventLine(const char* line, SerialHmiEvent& event);
     void ResetEventBuffer();
-    void RefreshCurrentPage();
-    void BeginBatchRefresh();
+    bool SendCommandLocked(const char* command);
+    bool BeginTxTransaction();
+    void EndTxTransaction();
+    void RefreshCurrentPage(bool page_entered = false);
+    void RefreshCurrentPageLocked(bool page_entered);
+    bool BeginBatchRefresh();
     void EndBatchRefresh();
     void RefreshHomePage(const SerialHmiAirQualityData& data);
-    void RefreshAirDetailPage(const SerialHmiAirQualityData& data);
+    void RefreshAirDetailPage(const SerialHmiAirQualityData& data, bool page_entered);
     void RefreshAiSettingsPage(const SerialHmiAirQualityData& data);
     void RecordAirCurveScore(int score);
     bool ClearCurve(int curve_id, int channel);
@@ -119,6 +123,7 @@ private:
     int air_curve_scores_[kAirCurveHistorySize] = {};
     size_t air_curve_write_index_ = 0;
     size_t air_curve_count_ = 0;
+    bool air_curve_point_pending_ = false;
     SemaphoreHandle_t tx_mutex_ = nullptr;
     char event_buffer_[96] = {};
     size_t event_buffer_len_ = 0;

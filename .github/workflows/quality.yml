@@ -25,6 +25,15 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Run native smart-home policy test
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -I main/boards/bread-compact-wifi \
+            tests/native/smart_home_policy_test.cpp \
+            main/boards/bread-compact-wifi/smart_home_policy.cc \
+            -o /tmp/smart_home_policy_test
+          /tmp/smart_home_policy_test
+
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
@@ -38,6 +47,7 @@ jobs:
 
       - name: Validate mini program JavaScript
         run: |
+          node --check ../mini_program_demo/app.js
           node --check ../mini_program_demo/pages/index/index.js
           node --check ../mini_program_demo/pages/admin/admin.js
           node --check ../mini_program_demo/utils/smart_home_service.js

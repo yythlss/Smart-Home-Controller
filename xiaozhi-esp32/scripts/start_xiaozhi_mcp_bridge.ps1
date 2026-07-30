@@ -1,5 +1,6 @@
 param(
     [string]$McpEndpoint = $env:MCP_ENDPOINT,
+    [string]$BridgeMode = $env:XIAOZHI_MCP_BRIDGE_MODE,
     [string]$Esp32BaseUrl = $env:ESP32_BASE_URL,
     [string]$McpPipePath = "",
     [string]$Python = "python",
@@ -46,9 +47,26 @@ if ([string]::IsNullOrWhiteSpace($McpEndpoint)) {
     throw "MCP_ENDPOINT is required. Set it with: `$env:MCP_ENDPOINT='wss://api.xiaozhi.me/mcp/?token=...'"
 }
 
-$BaseUrl = Normalize-BaseUrl $Esp32BaseUrl
+if ([string]::IsNullOrWhiteSpace($BridgeMode)) {
+    $BridgeMode = "external"
+}
+$BridgeMode = $BridgeMode.Trim().ToLowerInvariant()
+if ($BridgeMode -notin @("external", "full")) {
+    throw "Bridge mode must be external or full."
+}
+
+$BaseUrl = ""
+if (-not [string]::IsNullOrWhiteSpace($Esp32BaseUrl)) {
+    $BaseUrl = Normalize-BaseUrl $Esp32BaseUrl
+} elseif ($BridgeMode -eq "full") {
+    throw "ESP32 base URL is required in full compatibility mode."
+}
+
 $env:MCP_ENDPOINT = $McpEndpoint
-$env:ESP32_BASE_URL = $BaseUrl
+$env:XIAOZHI_MCP_BRIDGE_MODE = $BridgeMode
+if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+    $env:ESP32_BASE_URL = $BaseUrl
+}
 
 if ([string]::IsNullOrWhiteSpace($McpPipePath)) {
     $McpPipePath = $DefaultPipePath
@@ -66,14 +84,15 @@ if ($InstallDeps) {
     & $Python -m pip install -r $Requirements
 }
 
-if (-not $SkipHttpCheck) {
+if (-not $SkipHttpCheck -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) {
     Write-Host "Running ESP32 HTTP API pre-check..."
     & powershell -ExecutionPolicy Bypass -File $HttpTestScript -Esp32BaseUrl $BaseUrl
 }
 
 Write-Host "Starting Xiaozhi MCP bridge..."
 Write-Host ("  MCP_ENDPOINT   : {0}" -f (Redact-McpEndpoint $McpEndpoint))
-Write-Host ("  ESP32_BASE_URL : {0}" -f $BaseUrl)
+Write-Host ("  bridge mode    : {0}" -f $BridgeMode)
+Write-Host ("  ESP32_BASE_URL : {0}" -f $(if ($BaseUrl) { $BaseUrl } else { "not configured" }))
 Write-Host ("  mcp_pipe.py    : {0}" -f $McpPipePath)
 Write-Host "Press Ctrl+C to stop."
 

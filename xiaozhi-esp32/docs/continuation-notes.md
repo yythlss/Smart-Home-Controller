@@ -24,11 +24,12 @@
 16. `docs/phase-handoff-2026-07-28-software-reliability.md`
 17. `docs/phase-handoff-2026-07-28-mini-program-demo-enhancements.md`
 18. `docs/phase-handoff-2026-07-28-mini-program-admin-split.md`
-19. `../文档/串口屏与环境监测项目交付说明.md`
-20. 如果涉及小程序，再读：
+19. `docs/phase-handoff-2026-07-30-logic-ai-optimization-final.md`
+20. `../文档/串口屏与环境监测项目交付说明.md`
+21. 如果涉及小程序，再读：
     - 仓库根目录 `mini_program_demo/README.md`
     - `../文档/智能家居外设接线与验证步骤.md` 的第 12、13 节
-21. 如果涉及串口屏，再读：
+22. 如果涉及串口屏，再读：
    - `../文档/串口屏手动事件配置手册.md`
    - `main/boards/bread-compact-wifi/serial_hmi_widgets.json`
    - `../文档/串口屏设计说明.md`
@@ -70,6 +71,9 @@
 - `Dht11Sensor` 只负责 DHT11 单总线读取。
 - `Mq135Sensor` 只负责 MQ135 ADC 读取和演示级等级估算。
 - `SmartHomeController` 只负责智能家居执行器状态、PWM 输出、自动/节能模式和 MCP 工具；不要把这些控制逻辑重新塞回 `compact_wifi_board.cc`。
+- `SmartHomePolicy` 是自动/节能档位规则的纯 C++ 模块；阈值、回差和自定义规则优先在这里修改并补原生测试。
+- `SerialHmi` 的页面切换和批量刷新必须保持在同一个递归互斥事务中，避免恢复命令与控件更新交错。
+- 设备端 MCP 是家居控制权威入口；PC MCP 桥默认使用 `external` 模式，只提供天气、新闻和室内外组合建议。
 - `SmartHomeHttpServer` 只允许在 WiFi 已连接后启动。不要在 `CompactWifiBoard()` 构造函数里调用 `smart_home_http_.Start()`，否则会在 lwIP/tcpip 未就绪时触发 `Invalid mbox` 重启。
 - 排查外设不动作时，先看 monitor 是否同时有 `Screen event` 和 `SmartHome: Apply ... output`。前者说明 HMI 事件进入，后者说明控制器已经写 GPIO/PWM；如果出现 `Brownout detector was triggered`，先处理供电，不要继续按软件事件排查。
 - `utf8_to_gbk.*` 和 `gbk_table.inc` 只服务于屏幕中文显示，不负责 UI 逻辑。

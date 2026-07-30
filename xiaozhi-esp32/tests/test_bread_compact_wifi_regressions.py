@@ -38,6 +38,34 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertNotIn("hmi_data.has_temperature = dht_ok;", source)
         self.assertNotIn("hmi_data.has_humidity = dht_ok;", source)
 
+    def test_controller_separates_real_and_manual_environment_samples(self):
+        header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
+        source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+
+        self.assertIn("last_sensor_sample_", header + source)
+        self.assertIn("has_last_sensor_sample_", header + source)
+        self.assertIn("GetLastSensorSample", header + source)
+        self.assertIn("SanitizeEnvironmentSample", header + source)
+        self.assertIn("std::isfinite", source)
+        self.assertIn("ApplyEnvironmentSample(last_sensor_sample_)", source)
+        self.assertNotIn("ApplyEnvironmentSample(manual_sample_);\n        return;", source)
+
+    def test_control_setters_are_idempotent_before_output_or_nvs_writes(self):
+        source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+
+        for deadline in [
+            "purifier_override_until_ms_",
+            "fresh_air_override_until_ms_",
+            "humidifier_override_until_ms_",
+            "light_override_until_ms_",
+        ]:
+            self.assertIn(f"OverrideActive({deadline})", source)
+        self.assertIn("state_.auto_mode == enabled", source)
+        self.assertIn("state_.eco_mode == enabled", source)
+        self.assertIn("automation_rule_ = normalized", source)
+        self.assertIn("ApplyTargetLevels", source)
+        self.assertIn("if (purifier_changed)", source)
+
     def test_serial_hmi_debounces_page_refresh_to_reduce_flicker(self):
         source = (BOARD_DIR / "serial_hmi.cc").read_text(encoding="utf-8")
         header = (BOARD_DIR / "serial_hmi.h").read_text(encoding="utf-8")
@@ -49,10 +77,13 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("xTaskGetTickCount", source)
         self.assertIn("Ignore rapid page switch", source)
         self.assertIn("last_page_switch_ticks_", header)
-        self.assertIn('SendCommand("ref_stop")', source)
-        self.assertIn('SendCommand("ref_star")', source)
+        self.assertIn('SendCommandLocked("ref_stop")', source)
+        self.assertIn('SendCommandLocked("ref_star")', source)
         self.assertIn("BeginBatchRefresh", source)
         self.assertIn("EndBatchRefresh", source)
+        self.assertIn("BeginTxTransaction", source)
+        self.assertIn("xSemaphoreCreateRecursiveMutex", source)
+        self.assertIn("xSemaphoreTakeRecursive", source)
 
     def test_critical_cplusplus_statements_are_not_swallowed_by_comments(self):
         checks = {
@@ -131,12 +162,43 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
             "self.home.set_humidifier",
             "self.home.set_auto",
             "self.home.set_eco",
+            "self.home.get_summary",
+            "self.home.get_health",
+            "self.home.apply_scene",
         ]:
             self.assertIn(tool, source)
+        self.assertIn("BuildMcpResponse", header + source)
+        self.assertIn('cJSON_AddBoolToObject(response, "ok", ok)', source)
+        self.assertIn('cJSON_AddItemToObject(response, "data"', source)
+        self.assertIn('data != nullptr ? data : cJSON_CreateObject()', source)
+        self.assertGreaterEqual(source.count("automation_rule_active_ = false;"), 4)
+
+    def test_debug_mcp_tools_are_disabled_by_default(self):
+        config = (BOARD_DIR / "config.h").read_text(encoding="utf-8")
+        source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+
+        self.assertRegex(config, r"#define\s+SMART_HOME_ENABLE_DEBUG_MCP_TOOLS\s+0")
+        self.assertGreaterEqual(source.count("#if SMART_HOME_ENABLE_DEBUG_MCP_TOOLS"), 2)
+        for tool in [
+            '"self.home.update_context"',
+            '"self.home.set_manual_environment"',
+            '"self.home.set_environment_preset"',
+        ]:
+            self.assertIn(tool, source)
+
+    def test_pc_bridge_startup_defaults_to_external_mode(self):
+        script = (ROOT / "scripts" / "start_xiaozhi_mcp_bridge.ps1").read_text(encoding="utf-8")
+
+        self.assertIn('$BridgeMode = "external"', script)
+        self.assertIn('$BridgeMode -notin @("external", "full")', script)
+        self.assertIn('$env:XIAOZHI_MCP_BRIDGE_MODE = $BridgeMode', script)
+        self.assertIn('$BridgeMode -eq "full"', script)
 
     def test_smart_home_auto_eco_and_180_degree_servo_fan_rules(self):
         source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
         header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
+        policy = (BOARD_DIR / "smart_home_policy.cc").read_text(encoding="utf-8")
+        policy_header = (BOARD_DIR / "smart_home_policy.h").read_text(encoding="utf-8")
         design = (ROOT / "docs" / "superpowers" / "specs" / "2026-07-05-smart-home-control-design.md").read_text(encoding="utf-8")
 
         self.assertIn("SetEcoMode", source)
@@ -144,8 +206,14 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("state_.auto_mode = false", source)
         self.assertIn("state_.eco_mode = false", source)
         self.assertIn("EvaluateAutoMode", source)
-        self.assertIn("humidity_percent < 40.0f", source)
-        self.assertIn("mq135_raw >= 2000", source)
+        self.assertIn("EvaluateSmartHomeAutoPolicy", source)
+        self.assertIn("EvaluateSmartHomeEcoPolicy", source)
+        self.assertIn("humidity_percent < 40.0f", policy)
+        self.assertIn("humidity_percent < 45.0f", policy)
+        self.assertIn("mq135_raw >= 2000", policy)
+        self.assertIn("mq135_raw >= 1800", policy)
+        self.assertIn("SmartHomePolicyInput", policy_header)
+        self.assertIn("SmartHomePolicyOutput", policy_header)
         self.assertIn("SetServoAngle", source)
         self.assertIn("SetServoProfileForLevel", source)
         self.assertIn("ServoTaskLoop", source)
@@ -212,16 +280,15 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
     def test_air_curve_id_is_confirmed_and_temperature_humidity_curves_remain_gated(self):
         header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
         source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+        hmi_source = (BOARD_DIR / "serial_hmi.cc").read_text(encoding="utf-8")
         widgets = (BOARD_DIR / "serial_hmi_widgets.json").read_text(encoding="utf-8")
 
         self.assertIn("EnvironmentSample history_[30]", header)
         self.assertIn("history_write_index_", header)
         self.assertIn("RecordEnvironmentSample", source)
-        self.assertIn("kAirCurveId = 12", source)
-        self.assertIn("kCurveIdUnavailable", source)
-        self.assertIn("MaybeSendCurvePoint", source)
-        self.assertIn("curve_id < 0", source)
-        self.assertIn("add %d,%d,%d", source)
+        self.assertIn("kAirCurveId = 12", hmi_source)
+        self.assertNotIn("MaybeSendCurvePoint", source + header)
+        self.assertNotIn("add %d,%d,%d", source)
         self.assertIn('"name": "c_air"', widgets)
         self.assertIn('"numeric_id": 12', widgets)
 
@@ -237,7 +304,9 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
         self.assertIn("ClearCurve", source)
         self.assertIn('"cle %d,%d"', source)
         self.assertIn('"add %d,%d,%d"', source)
-        self.assertIn("ReplayAirCurveHistory()", source)
+        self.assertIn("if (page_entered)", source)
+        self.assertIn("air_curve_point_pending_", header + source)
+        self.assertIn("newest_index", source)
         self.assertIn("current_page_id_ == kAirDetailPageId", source)
 
     def test_environment_comfort_advice_manual_mode_and_ai_tool_contract(self):
@@ -431,6 +500,8 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
     def test_demo_enhancements_expose_rules_scenes_events_radar_and_offline_mode(self):
         header = (BOARD_DIR / "smart_home_controller.h").read_text(encoding="utf-8")
         source = (BOARD_DIR / "smart_home_controller.cc").read_text(encoding="utf-8")
+        policy = (BOARD_DIR / "smart_home_policy.cc").read_text(encoding="utf-8")
+        policy_header = (BOARD_DIR / "smart_home_policy.h").read_text(encoding="utf-8")
         http = (BOARD_DIR / "smart_home_http_server.cc").read_text(encoding="utf-8")
         mini_root = ROOT.parent / "mini_program_demo"
         main_dir = mini_root / "pages" / "index"
@@ -446,9 +517,11 @@ class BreadCompactWifiRegressionTest(unittest.TestCase):
 
         for symbol in [
             "AutomationRuleConfig", "SmartHomeEvent", "SetAutomationRule",
-            "ApplyScene", "BuildEventsJson", "EvaluateAutomationRule",
+            "ApplyScene", "BuildEventsJson",
         ]:
             self.assertIn(symbol, header + source)
+        for symbol in ["SmartHomePolicyRule", "ApplyAutomationRule"]:
+            self.assertIn(symbol, policy_header + policy)
         for endpoint in ['"/api/events"', '"/api/automation"', '"/api/scene"']:
             self.assertIn(endpoint, http)
         for symbol in ["drawTrendChart", "setScene", "openAdmin"]:
